@@ -1,8 +1,8 @@
 """
-Phase 9: Auth — simple local multi-user support
+Phase 9: Auth - simple local multi-user support
 Stores users in a JSON file, bcrypt passwords
 """
-import json, hashlib, secrets, time
+import json, bcrypt, secrets, time
 from datetime import datetime
 from pathlib import Path
 from fastapi import HTTPException, Header
@@ -12,11 +12,14 @@ class AuthManager:
     def __init__(self, workspace_dir: Path):
         self.path = workspace_dir / ".auth" / "users.json"
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.tokens: dict[str, dict] = {}  # token -> {user, expires}
+        self.tokens: dict[str, dict] = {}
         self._ensure_admin()
 
     def _hash(self, password: str) -> str:
-        return hashlib.sha256(password.encode()).hexdigest()
+        return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+    def _verify(self, password: str, hashed: str) -> bool:
+        return bcrypt.checkpw(password.encode(), hashed.encode())
 
     def _load(self) -> dict:
         if not self.path.exists():
@@ -39,13 +42,13 @@ class AuthManager:
     def login(self, username: str, password: str) -> Optional[str]:
         users = self._load()
         u = users.get(username)
-        if not u or u["password"] != self._hash(password):
+        if not u or not self._verify(password, u["password"]):
             return None
         token = secrets.token_hex(32)
         self.tokens[token] = {
             "user":    username,
             "role":    u.get("role", "user"),
-            "expires": time.time() + 86400 * 7,  # 7 days
+            "expires": time.time() + 86400 * 7,
         }
         return token
 
