@@ -73,7 +73,7 @@ export default function AuditView() {
           <div className="glass rounded-2xl border border-white/10 p-10 text-center">
             <Activity size={36} className="mx-auto mb-3 text-slate-700"/>
             <div className="text-slate-500 text-sm">No audit entries yet.</div>
-            <div className="text-slate-600 text-xs mt-1">All actions will appear here as you use KrestivOS.</div>
+            <div className="text-slate-600 text-xs mt-1">All actions will appear here as you use KreativOS.</div>
           </div>
         )}
 

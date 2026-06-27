@@ -1,5 +1,5 @@
 """
-KrestivOS v3.1 — Backup & Restore (from agentic-os inspiration)
+KreativOS — Backup & Restore (from agentic-os inspiration)
 One-click tar.gz backup of the entire workspace.
 """
 import tarfile, json, shutil
@@ -16,7 +16,7 @@ def init(workspace_dir: Path):
 def create_backup(workspace_dir: Path) -> Path:
     """Create a timestamped tar.gz of the workspace"""
     ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_name = f"krestivos_backup_{ts}.tar.gz"
+    out_name = f"kreavitos_backup_{ts}.tar.gz"
     out_path = BACKUP_DIR / out_name
 
     # Write manifest
@@ -44,7 +44,7 @@ def create_backup(workspace_dir: Path) -> Path:
 def list_backups() -> list:
     if not BACKUP_DIR or not BACKUP_DIR.exists(): return []
     backups = []
-    for f in sorted(BACKUP_DIR.glob("krestivos_backup_*.tar.gz"), reverse=True):
+    for f in sorted(BACKUP_DIR.glob("kreavitos_backup_*.tar.gz"), reverse=True):
         backups.append({
             "filename": f.name,
             "size_mb":  round(f.stat().st_size / 1024 / 1024, 2),
@@ -55,7 +55,7 @@ def list_backups() -> list:
 
 def delete_backup(filename: str) -> bool:
     p = BACKUP_DIR / filename
-    if p.exists() and p.name.startswith("krestivos_backup_"):
+    if p.exists() and p.name.startswith("kreavitos_backup_"):
         p.unlink(); return True
     return False
 

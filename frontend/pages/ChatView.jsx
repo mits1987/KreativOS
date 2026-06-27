@@ -127,7 +127,7 @@ export default function ChatView() {
         {messages.length === 0 && (
           <div className="max-w-2xl mx-auto text-center mt-12">
             <div className="text-5xl mb-4">🧠</div>
-            <h2 className="text-2xl font-bold text-white mb-2">KrestivOS v2</h2>
+            <h2 className="text-2xl font-bold text-white mb-2">KreativOS</h2>
             <p className="text-slate-500 mb-2 text-sm">Multi-agent · Ralph Loop · Voice · Skills · File workspace</p>
             <p className="text-slate-600 mb-8 text-xs">Powered by your local Ollama — 100% private, 100% free</p>
             <div className="grid grid-cols-2 gap-3">
@@ -183,7 +183,7 @@ export default function ChatView() {
             <textarea ref={textareaRef} value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKey}
-              placeholder={`Message ${agents.find(a => a.id === selectedAgent)?.name || 'KrestivOS'}…`}
+              placeholder={`Message ${agents.find(a => a.id === selectedAgent)?.name || 'KreativOS'}…`}
               rows={1} disabled={isStreaming}
               className="w-full bg-transparent px-4 py-3 text-sm text-white placeholder-slate-600 resize-none focus:outline-none max-h-40 overflow-y-auto"
               style={{ minHeight: '48px' }}

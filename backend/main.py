@@ -1,5 +1,5 @@
 """
-KrestivOS v3 — Complete Agentic OS
+KreativOS — Complete Agentic OS
 All 10 phases implemented:
  1. Multi-Agent Pipeline
  2. Project Memory
@@ -30,12 +30,12 @@ from .web_search import duckduckgo_search, format_results_for_agent
 from .scheduler import TaskScheduler
 from .auth      import AuthManager
 
-app = FastAPI(title="KreativOS v1.0", version="3.0.0")
+app = FastAPI(title="KreativOS v1.0", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-WORKSPACE_DIR   = Path(os.getenv("WORKSPACE_DIR", "/tmp/krestivos_workspace"))
+WORKSPACE_DIR   = Path(os.getenv("WORKSPACE_DIR", "/tmp/kreavitos_workspace"))
 WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Services ───────────────────────────────────────────────────────────────────
@@ -80,8 +80,8 @@ def get_skills_for_agent(agent_id: str) -> str:
 
 # ── Agent Systems ──────────────────────────────────────────────────────────────
 AGENT_SYSTEMS = {
-    "general":      "You are KrestivOS, a smart AI assistant. Help clearly and completely.",
-    "coder":        "You are an expert software engineer in KrestivOS.\nRULES:\n1. COMPLETE code only — no placeholders.\n2. First line of every code block: # filename: <name>\n3. List ALL files first, then write each completely.\n4. Include error handling and comments.",
+    "general":      "You are KreativOS, a smart AI assistant. Help clearly and completely.",
+    "coder":        "You are an expert software engineer in KreativOS.\nRULES:\n1. COMPLETE code only — no placeholders.\n2. First line of every code block: # filename: <name>\n3. List ALL files first, then write each completely.\n4. Include error handling and comments.",
     "researcher":   "You are a research specialist. Provide structured research:\n- Executive summary (3 sentences)\n- Key findings\n- Comparison tables where useful\n- Key Takeaways (3-5 bullets)",
     "architect":    "You are a software architect.\n1. Output complete folder structure (ASCII tree) first.\n2. Define tech stack with reasoning.\n3. List all files to create.\n4. Describe component communication.\n5. Hand off spec the Coder can implement immediately.",
     "orchestrator": "You are the master orchestrator. Break tasks into phases, assign agents, synthesise results.",
@@ -322,7 +322,7 @@ def get_current_user(authorization: Optional[str] = None):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/")
-async def root(): return {"status": "KrestivOS v3", "version": "3.0.0", "phases": 10}
+async def root(): return {"status": "KreativOS", "version": "1.0.0", "phases": 10}
 
 @app.get("/api/health")
 async def health():
@@ -331,7 +331,7 @@ async def health():
         async with httpx.AsyncClient(timeout=5) as c:
             ok = (await c.get(f"{OLLAMA_BASE_URL}/api/tags")).status_code == 200
     except: pass
-    return {"status":"ok","version":"3.0.0","ollama":"connected" if ok else "disconnected",
+    return {"status":"ok","version":"1.0.0","ollama":"connected" if ok else "disconnected",
             "workspace":str(WORKSPACE_DIR),"timestamp":datetime.now().isoformat()}
 
 @app.get("/api/models")
@@ -596,7 +596,7 @@ async def delete_user(username: str):
 @app.get("/api/pwa/manifest")
 async def pwa_manifest():
     return {
-        "name": "KrestivOS", "short_name": "KrestivOS",
+        "name": "KreativOS", "short_name": "KreativOS",
         "description": "Agentic AI Operating System",
         "start_url": "/", "display": "standalone",
         "background_color": "#0a0a0f", "theme_color": "#8b5cf6",
@@ -806,7 +806,7 @@ async def transcribe_audio(audio: UploadFile = File(...)):
         return {"transcript": "", "error": str(e)}
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  KrestivOS v3.1 ADDITIONS
+#  KreativOS ADDITIONS
 #  • Office file generation (PPTX/DOCX/XLSX)
 #  • Telegram bot
 #  • Skill evaluation
@@ -1016,7 +1016,7 @@ async def list_backups():
 
 @app.get("/api/backup/download/{filename}")
 async def download_backup(filename: str):
-    if not filename.startswith("krestivos_backup_") or not filename.endswith(".tar.gz"):
+    if not filename.startswith("kreavitos_backup_") or not filename.endswith(".tar.gz"):
         raise HTTPException(400, "Invalid backup filename")
     fp = WORKSPACE_DIR / ".backups" / filename
     if not fp.exists(): raise HTTPException(404, "Backup not found")
@@ -1080,7 +1080,7 @@ async def telegram_test(body: dict):
     telegram_bot.update_model(body.get("model",""))
     return {"success": True, "message": "Bot is running. Send /start to your bot on Telegram."}
 
-# ── DASHBOARD v3.1 (patch to include new stats) ────────────────────────────────
+# ── DASHBOARD (patch to include new stats) ────────────────────────────────
 @app.get("/api/dashboard/v2")
 async def dashboard_v2():
     files = [f for f in WORKSPACE_DIR.rglob("*")

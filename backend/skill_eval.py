@@ -1,5 +1,5 @@
 """
-KrestivOS v3.1 — Skill Evaluation System (from agentic-os inspiration)
+KreativOS — Skill Evaluation System (from agentic-os inspiration)
 Grades every task output and tracks skill scores over time.
 """
 import json

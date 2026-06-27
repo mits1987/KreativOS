@@ -1,5 +1,5 @@
 """
-KrestivOS Model Hub - HuggingFace GGUF browser + Ollama downloader
+KreativOS Model Hub - HuggingFace GGUF browser + Ollama downloader
 """
 import asyncio, json, re
 from typing import Optional

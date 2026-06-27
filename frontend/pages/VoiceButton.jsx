@@ -140,7 +140,7 @@ export default function VoiceButton({ onTranscript, backendUrl = 'http://localho
       if (useVosk) startVosk()
       else {
         if (!recognitionRef.current) {
-          alert('Voice input: Use Chrome or Edge browser for best experience.\n\nFirefox users: Make sure the KrestivOS backend is running with Vosk installed.')
+          alert('Voice input: Use Chrome or Edge browser for best experience.\n\nFirefox users: Make sure the KreativOS backend is running with Vosk installed.')
           return
         }
         try { recognitionRef.current.start() } catch(e) { setState('error') }

@@ -1,5 +1,5 @@
 """
-KrestivOS v3.1 — New feature tests
+KreativOS — Feature Tests
 Covers: Office files, Skill eval, Audit, Backup, Prompts, Telegram status
 """
 import pytest, json
@@ -193,7 +193,7 @@ async def test_backup_create_route(client, tmp_workspace):
     assert r.status_code == 200
     d = r.json()
     assert "filename" in d
-    assert d["filename"].startswith("krestivos_backup_")
+    assert d["filename"].startswith("kreavitos_backup_")
     assert d["size_mb"] >= 0
 
 # ── YAGNI in coder prompt ──────────────────────────────────────────────────────

@@ -11,7 +11,7 @@ async def duckduckgo_search(query: str, max_results: int = 5) -> list[dict]:
         # DuckDuckGo Instant Answer API
         url = f"https://api.duckduckgo.com/?q={quote_plus(query)}&format=json&no_html=1&skip_disambig=1"
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, headers={"User-Agent": "KrestivOS/3.0"})
+            resp = await client.get(url, headers={"User-Agent": "KreativOS/1.0"})
             data = resp.json()
 
         # Abstract (main result)

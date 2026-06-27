@@ -68,8 +68,8 @@ export default function Sidebar() {
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 flex-shrink-0">
         <div className="flex items-center gap-2">
           <Brain size={17} className="text-accent-purple"/>
-          <span className="font-semibold text-white text-sm">KrestivOS</span>
-          <span className="text-xs text-slate-600 font-mono">v3.1</span>
+          <span className="font-semibold text-white text-sm">KreativOS</span>
+          <span className="text-xs text-slate-600 font-mono">v1.0</span>
           <span className={clsx('w-2 h-2 rounded-full flex-shrink-0',
             ollamaStatus==='connected' ? 'bg-accent-green' :
             ollamaStatus==='disconnected' ? 'bg-red-500' : 'bg-slate-500')}

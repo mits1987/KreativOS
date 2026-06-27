@@ -1,6 +1,6 @@
 """
-KrestivOS v3.1 — Telegram Bot (from AionUi inspiration)
-Lets you send tasks to KrestivOS from your phone via Telegram.
+KreativOS — Telegram Bot (from AionUi inspiration)
+Lets you send tasks to KreativOS from your phone via Telegram.
 
 Setup:
 1. Talk to @BotFather on Telegram → /newbot → copy token
@@ -45,7 +45,7 @@ class TelegramBot:
                     await update.message.reply_text("❌ Unauthorized. Add your chat ID to TELEGRAM_CHAT_ID.")
                     return
                 await update.message.reply_text(
-                    "🧠 *KrestivOS Bot* — Commands:\n"
+                    "🧠 *KreativOS Bot* — Commands:\n"
                     "/task <prompt> — run autonomous task\n"
                     "/agent <name> — set agent (coder/researcher/architect/devops)\n"
                     "/status — system status\n"
@@ -56,7 +56,7 @@ class TelegramBot:
 
             async def status_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 if ALLOWED_IDS and str(update.effective_chat.id) not in ALLOWED_IDS: return
-                await update.message.reply_text("✅ KrestivOS is running. Backend connected.")
+                await update.message.reply_text("✅ KreativOS is running. Backend connected.")
 
             async def task_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 if ALLOWED_IDS and str(update.effective_chat.id) not in ALLOWED_IDS: return
@@ -74,7 +74,7 @@ class TelegramBot:
                     except Exception as e:
                         await update.message.reply_text(f"❌ Error: {e}")
                 else:
-                    await update.message.reply_text("⚠️ No model selected. Configure in KrestivOS settings.")
+                    await update.message.reply_text("⚠️ No model selected. Configure in KreativOS settings.")
 
             async def agent_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 if ALLOWED_IDS and str(update.effective_chat.id) not in ALLOWED_IDS: return
@@ -90,7 +90,7 @@ class TelegramBot:
                 agent = ctx.bot_data.get("agent", "general")
                 model = ctx.bot_data.get("model", "")
                 if not model:
-                    await update.message.reply_text("⚠️ No model loaded. Please check KrestivOS Settings."); return
+                    await update.message.reply_text("⚠️ No model loaded. Please check KreativOS Settings."); return
                 await update.message.reply_text(f"💭 {agent} is thinking…")
                 if self._chat_cb:
                     try:

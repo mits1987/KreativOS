@@ -48,7 +48,7 @@ export default function UsersView() {
         <div className="glass rounded-xl border border-white/10 p-3 mb-4 text-xs text-slate-500">
           <div className="flex items-start gap-2">
             <Shield size={13} className="text-accent-amber mt-0.5"/>
-            <div>KrestivOS uses optional auth. Default admin login: <span className="font-mono text-white">admin / admin123</span> — change this after setup. Auth is optional for single-user deployments.</div>
+            <div>KreativOS uses optional auth. Default admin login: <span className="font-mono text-white">admin / admin123</span> — change this after setup. Auth is optional for single-user deployments.</div>
           </div>
         </div>
 

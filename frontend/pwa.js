@@ -8,7 +8,7 @@ export function registerSW() {
     window.addEventListener('load', async () => {
       try {
         const reg = await navigator.serviceWorker.register('/sw.js')
-        console.log('KrestivOS SW registered:', reg.scope)
+        console.log('KreativOS SW registered:', reg.scope)
       } catch (e) {
         console.warn('SW registration failed:', e)
       }

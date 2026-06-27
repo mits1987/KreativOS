@@ -1,5 +1,5 @@
 """
-KrestivOS v3 — Backend Test Suite
+KreativOS — Backend Test Suite
 Tests all major API endpoints without requiring Ollama running.
 Run: pytest tests/ -v
 """

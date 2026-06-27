@@ -1,15 +1,28 @@
 services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
   backend:
     build: .
     ports:
       - "8000:8000"
     environment:
       - WORKSPACE_DIR=/data/workspace
+      - OLLAMA_BASE_URL=http://ollama:11434
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - AUTH_REQUIRED=${AUTH_REQUIRED:-false}
     volumes:
       - workspace_data:/data/workspace
+    depends_on:
+      - ollama
     restart: unless-stopped
 
 volumes:
   workspace_data:
+  ollama_data:

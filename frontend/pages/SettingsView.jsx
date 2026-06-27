@@ -77,7 +77,7 @@ export default function SettingsView() {
 
           <div className="space-y-4">
             <div>
-              <label className="text-xs text-slate-500 uppercase tracking-wider mb-2 block">KrestivOS Backend URL</label>
+              <label className="text-xs text-slate-500 uppercase tracking-wider mb-2 block">KreativOS Backend URL</label>
               <div className="flex gap-2">
                 <input
                   className="input-base flex-1 font-mono text-xs"

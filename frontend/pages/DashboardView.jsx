@@ -119,7 +119,7 @@ export default function DashboardView() {
           <div>
             <div className="flex items-center gap-3">
               <Brain size={24} className="text-accent-purple" />
-              <h1 className="text-2xl font-bold text-white">KrestivOS Dashboard</h1>
+              <h1 className="text-2xl font-bold text-white">KreativOS Dashboard</h1>
               <span className="tag bg-accent-purple/20 text-accent-purple text-xs px-2 py-0.5 rounded-full">v2.0</span>
             </div>
             <p className="text-slate-500 text-sm mt-1">

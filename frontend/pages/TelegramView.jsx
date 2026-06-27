@@ -7,7 +7,7 @@ const STEPS = [
   { n:1, title:'Create Telegram bot', desc:'Open Telegram, search @BotFather, send /newbot, follow instructions, copy the token.' },
   { n:2, title:'Set env variable on VM', desc:'Edit your docker-compose.yml or .env file and add:', code:'TELEGRAM_BOT_TOKEN=your_token_here' },
   { n:3, title:'Get your Chat ID', desc:'Message @userinfobot on Telegram. It will reply with your ID. Then add:', code:'TELEGRAM_CHAT_ID=your_chat_id' },
-  { n:4, title:'Restart KrestivOS', desc:'Run:', code:'docker compose down && docker compose up -d' },
+  { n:4, title:'Restart KreativOS', desc:'Run:', code:'docker compose down && docker compose up -d' },
   { n:5, title:'Start chatting!', desc:'Open Telegram, find your bot, send /start. You can now send tasks from your phone.' },
 ]
 
@@ -42,7 +42,7 @@ export default function TelegramView() {
             </span>
           )}
         </div>
-        <p className="text-slate-500 text-sm mb-6">Control KrestivOS from your phone via Telegram. Send tasks, get results — no browser needed.</p>
+        <p className="text-slate-500 text-sm mb-6">Control KreativOS from your phone via Telegram. Send tasks, get results — no browser needed.</p>
 
         {/* Status card */}
         {status && (
@@ -82,7 +82,7 @@ export default function TelegramView() {
                 ['/start',          'Show help and available commands'],
                 ['/task <prompt>',  'Run an autonomous task with the current agent'],
                 ['/agent <name>',   'Switch agent (coder/researcher/architect/devops)'],
-                ['/status',         'Check if KrestivOS backend is running'],
+                ['/status',         'Check if KreativOS backend is running'],
                 ['(any message)',   'Chat with the current agent'],
               ].map(([cmd, desc])=>(
                 <div key={cmd} className="flex gap-3">

@@ -80,4 +80,4 @@ Networking → VCN → Security Lists → Add Ingress Rules:
 | Deployment | Docker · docker-compose or bare metal |
 
 ---
-KreativOS v3.0 · Built with Claude · June 2026
+KreativOS v1.0

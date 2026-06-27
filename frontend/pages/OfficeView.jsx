@@ -6,7 +6,7 @@ import api from '../utils/api'
 import MessageRenderer from '../components/MessageRenderer'
 
 const FORMATS = [
-  { id:'pptx', icon:'📊', label:'PowerPoint', desc:'Slide deck with KrestivOS branding', color:'#ef4444' },
+  { id:'pptx', icon:'📊', label:'PowerPoint', desc:'Slide deck with KreativOS branding', color:'#ef4444' },
   { id:'docx', icon:'📝', label:'Word Doc',   desc:'Formatted document with headings',  color:'#2563eb' },
   { id:'xlsx', icon:'📈', label:'Excel',       desc:'Spreadsheet with styled table',      color:'#16a34a' },
 ]

@@ -1,6 +1,6 @@
 ﻿{
-  "name": "KrestivOS — Agentic OS",
-  "short_name": "KrestivOS",
+  "name": "KreativOS — Agentic OS",
+  "short_name": "KreativOS",
   "description": "Self-hosted multi-agent AI operating system powered by Ollama",
   "start_url": "/",
   "display": "standalone",

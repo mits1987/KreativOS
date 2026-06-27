@@ -1,4 +1,4 @@
-﻿const CACHE_NAME = 'krestivos-v3'
+﻿const CACHE_NAME = 'kreavitos-v1'
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json']
 
 self.addEventListener('install', (e) => {
@@ -22,6 +22,6 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(caches.match(e.request).then(cached => cached || fetch(e.request)))
 })
 self.addEventListener('push', (e) => {
-  const data = e.data?.json() || {title:'KrestivOS',body:'Task completed'}
+  const data = e.data?.json() || {title:'KreativOS',body:'Task completed'}
   e.waitUntil(self.registration.showNotification(data.title, {body:data.body,icon:'/icon-192.png'}))
 })

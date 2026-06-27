@@ -89,7 +89,7 @@ export default function App() {
           <div className="absolute bottom-4 right-4 glass border border-accent-purple/30 rounded-xl px-4 py-3 flex items-center gap-3 shadow-xl z-50 animate-fade-in">
             <span className="text-xl">📱</span>
             <div>
-              <div className="text-xs font-medium text-white">Install KrestivOS</div>
+              <div className="text-xs font-medium text-white">Install KreativOS</div>
               <div className="text-xs text-slate-500">Add to home screen</div>
             </div>
             <button onClick={async()=>{ const ok=await triggerInstall(); if(ok)setInstalled(true) }}

@@ -1,5 +1,5 @@
 """
-KrestivOS v3.1 — Audit Trail (from agentic-os inspiration)
+KreativOS — Audit Trail (from agentic-os inspiration)
 Logs every significant action to a structured JSONL file.
 """
 import json
