@@ -1,18 +1,26 @@
-﻿# ðŸ§  KreativOS v3 â€” Agentic Operating System
+# KreativOS — Agentic Operating System
 
-A self-hosted, browser-based agentic OS powered by your local Ollama models.
-**v2 adds: Dashboard Â· Ralph Loop Â· 24 Agent Skills Â· Voice Input**
+A self-hosted, browser-based Agentic OS that runs 100% locally on a CPU-only Oracle VM using Ollama.
+**v3 ships all 10 phases: Pipeline · Memory · Web Search · App Builder · Canvas · Voice · Code Review · Scheduler · Auth · PWA**
 
-## âœ¨ What's New in v2
+## What's New in v3
 
 | Feature | Description |
 |---|---|
-| ðŸ“Š **Dashboard** | Live stats: messages, tasks, Ralph Loop runs, files, agent usage, activity feed |
-| ðŸ”„ **Ralph Loop** | Auto self-critic + QA review after every Coder/Architect/DevOps task, up to 3 fix iterations |
-| ðŸ“š **24 Agent Skills** | Domain expertise injected into each agent: coding standards, security, testing, DevOps, docs |
-| ðŸŽ™ï¸ **Voice Input** | Click mic in chat â€” speak your prompt (Chrome/Edge, no API key needed) |
+| 🔗 **Multi-Agent Pipeline** | Orchestrator breaks big tasks into phases, auto-assigns Architect → Coder → DevOps |
+| 🧠 **Project Memory** | Persistent context file per project — agents never forget earlier decisions |
+| 🌐 **Web Search** | Researcher uses DuckDuckGo live search, cites sources in responses |
+| 🏗️ **App Builder** | Generate full multi-file apps with preview + zip download |
+| 🎨 **Visual Canvas** | Drag-and-drop node editor for custom agent workflows |
+| 🔊 **Voice Output** | Browser TTS speaks agent responses; full voice conversation mode |
+| 🔍 **Code Review** | Upload any file → structured bug/security/style report + auto-fix |
+| ⏰ **Scheduled Tasks** | Cron-style scheduler visible in Dashboard with full output logs |
+| 👥 **Multi-User Auth** | Login page, per-user workspaces, admin panel |
+| 📱 **PWA** | Installable on mobile, offline history, push notifications |
+| 📬 **Telegram Bot** | Control KreativOS from Telegram: run tasks, check status |
+| 📄 **Office Suite** | Generate .docx, .xlsx, .pptx directly from agent output |
 
-## ðŸš€ Install on Oracle VM (one command)
+## Install on Oracle VM (one command)
 
 ```bash
 git clone https://github.com/mits1987/KreativOS.git
@@ -20,49 +28,56 @@ cd KreativOS
 bash install.sh
 ```
 
-Then open `http://YOUR_VM_IP:3000` from any browser.
+Then open `http://YOUR_VM_IP:8000` from any browser.
 
-## âš¡ Dev mode (no Docker)
+## Dev Mode (no Docker)
 
 ```bash
 bash start-dev.sh
-# Open http://YOUR_VM_IP:5173
+# Backend:  http://YOUR_VM_IP:8000
+# Frontend: http://YOUR_VM_IP:5173
 ```
 
-## ðŸ¤– Agents
+## Windows Dev Mode
 
-| Agent | Ralph Loop | Skills injected |
+```powershell
+.\start-dev-windows.ps1
+```
+
+## Agents
+
+| Agent | Ralph Loop | Speciality |
 |---|---|---|
-| ðŸ’» Coder | âœ… Yes | coding, testing, debugging, performance |
-| ðŸ—ï¸ Architect | âœ… Yes | architecture, devops, documentation |
-| âš™ï¸ DevOps | âœ… Yes | devops, security, performance |
-| ðŸ” Researcher | âŒ No | documentation |
-| ðŸŽ¯ Orchestrator | âŒ No | architecture |
-| ðŸ¤– General | âŒ No | â€” |
+| 💻 Coder | ✅ Yes | Write & save code, auto-fix with Ralph Loop |
+| 🏗️ Architect | ✅ Yes | System design, architecture, structure |
+| ⚙️ DevOps | ✅ Yes | Docker, CI/CD, deployment scripts |
+| 🔍 Researcher | ❌ No | Deep research + live web search |
+| 🎯 Orchestrator | ❌ No | Break tasks into multi-agent pipelines |
 
-## ðŸ”„ How Ralph Loop Works
+## How Ralph Loop Works
 
-1. You run a task with Coder/Architect/DevOps agent
+1. You run a task with Coder / Architect / DevOps agent
 2. Agent produces initial output
 3. **Self-Critic** reviews: correctness, completeness, quality, runnability
 4. **QA Tester** reviews: requirement coverage, bugs, readability
-5. If either fails â†’ fix prompt sent â†’ agent re-runs
-6. Repeat up to 3 times â†’ deliver final output
-7. Dashboard shows all loop stats
+5. If either fails → fix prompt sent → agent re-runs
+6. Repeat up to 3 times → deliver final output
 
-## ðŸ“Š Dashboard
+## Open Oracle Cloud Ports
 
-Live view of:
-- System status (Ollama connection, model, uptime)
-- Total messages, tasks, files, code executions
-- Ralph Loop runs + auto-fixes applied
-- Agent usage chart
-- Live activity feed (last 20 events)
-
-## ðŸ”’ Open Oracle Cloud Ports
-
-Networking â†’ VCN â†’ Security Lists â†’ Add Ingress Rules:
-- Port **3000** (frontend)
-- Port **8000** (backend)
+Networking → VCN → Security Lists → Add Ingress Rules:
+- Port **8000** (backend + frontend served by FastAPI)
 - Source CIDR: `0.0.0.0/0`
 
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | Python · FastAPI · Uvicorn |
+| AI Engine | Ollama (local LLM) |
+| Frontend | React 18 · Vite · Tailwind CSS · Zustand |
+| Database | File-based workspace (JSON + files) |
+| Deployment | Docker · docker-compose or bare metal |
+
+---
+KreativOS v3.0 · Built with Claude · June 2026
