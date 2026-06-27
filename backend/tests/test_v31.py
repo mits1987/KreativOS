@@ -15,7 +15,7 @@ def tmp_workspace(tmp_path):
 
 @pytest.fixture
 async def client(tmp_workspace):
-    from main import app
+    from backend.main import app
     from httpx import AsyncClient, ASGITransport
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c

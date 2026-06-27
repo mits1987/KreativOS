@@ -1,4 +1,4 @@
-name: KrestivOS CI
+name: KreativOS CI
 
 on:
   push:
@@ -18,8 +18,9 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run tests
         run: pytest -v --tb=short --timeout=30
+        working-directory: backend
         env:
-          WORKSPACE_DIR: /tmp/krestivos_test
+          WORKSPACE_DIR: /tmp/kreavitos_test
 
   frontend-build:
     name: Frontend Build
@@ -30,13 +31,14 @@ jobs:
         with: { node-version: '20' }
       - name: Install and build
         run: |
-          npm install
+          npm ci
           npm run build
+        working-directory: frontend
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
-          path: dist/
+          path: frontend/dist/
 
   docker-build:
     name: Docker Build Check

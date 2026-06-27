@@ -24,13 +24,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 
-from pipeline  import run_pipeline, PIPELINE_TEMPLATES
-from memory    import ProjectMemory
-from websearch import duckduckgo_search, format_results_for_agent
-from scheduler import TaskScheduler
-from auth      import AuthManager
+from .pipeline  import run_pipeline, PIPELINE_TEMPLATES
+from .memory    import ProjectMemory
+from .web_search import duckduckgo_search, format_results_for_agent
+from .scheduler import TaskScheduler
+from .auth      import AuthManager
 
-app = FastAPI(title="KrestivOS v3", version="3.0.0")
+app = FastAPI(title="KreativOS v1.0", version="3.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
 
@@ -690,7 +690,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     except WebSocketDisconnect: pass
 
 # ── Include Model Hub ──────────────────────────────────────────────────────────
-from model_hub import router as hub_router
+from .model_hub import router as hub_router
 app.include_router(hub_router)
 
 @app.post("/api/hub/pull")
@@ -815,14 +815,14 @@ async def transcribe_audio(audio: UploadFile = File(...)):
 #  • YAGNI Coder upgrade
 #  • Prompt library
 # ══════════════════════════════════════════════════════════════════════════════
-from office_agents import (
+from .office_agents import (
     generate_pptx, generate_docx, generate_xlsx,
     parse_ai_to_slides, parse_ai_to_table
 )
-from telegram_bot import bot as telegram_bot
-from skill_eval   import SkillEvaluator
-from audit        import AuditLog
-import backup as backup_mod
+from .telegram_bot import bot as telegram_bot
+from .skill_eval   import SkillEvaluator
+from .audit        import AuditLog
+from . import backup as backup_mod
 from fastapi.responses import FileResponse
 
 # ── Init new services ──────────────────────────────────────────────────────────
