@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+﻿import React, { useState, useEffect } from 'react'
 import { BookOpen, Plus, Trash2, Copy, Check, Send } from 'lucide-react'
 import clsx from 'clsx'
 import useStore from '../store'

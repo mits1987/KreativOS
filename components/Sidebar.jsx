@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+﻿import React, { useState } from 'react'
 import {
   MessageSquare, FolderOpen, Settings, ChevronLeft, Plus, Trash2,
   Zap, Brain, LayoutDashboard, Search, Package, GitBranch, Workflow,

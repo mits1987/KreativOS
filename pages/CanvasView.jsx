@@ -92,7 +92,6 @@ export default function CanvasView() {
         const r = await api.post(`/api/canvas/run/${activeWf}`,{model:selectedModel,task})
         setResults(r)
       } else {
-        // Run unsaved workflow inline
         const edges = nodes.slice(0,-1).map((n,i)=>({id:`e${i}`,source:n.id,target:nodes[i+1].id}))
         const tmp = await api.post('/api/canvas/workflows',{name:'_temp',description:'',nodes,edges})
         const r = await api.post(`/api/canvas/run/${tmp.id}`,{model:selectedModel,task})
@@ -168,7 +167,6 @@ export default function CanvasView() {
               </div>
             </div>
           )}
-          {/* Connection lines */}
           <svg className="absolute inset-0 w-full h-full pointer-events-none">
             {nodes.slice(0,-1).map((n,i) => {
               const next = nodes[i+1]
@@ -196,7 +194,6 @@ export default function CanvasView() {
           </button>
         </div>
 
-        {/* Results */}
         {results && (
           <div className="border-t border-white/5 bg-surface-1 max-h-64 overflow-y-auto p-4">
             <div className="text-xs text-slate-500 uppercase tracking-wider mb-3">Workflow Results</div>

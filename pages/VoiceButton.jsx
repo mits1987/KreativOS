@@ -1,6 +1,6 @@
 /**
  * VoiceButton — Phase 6: Voice Input + Output
- * 
+ *
  * Strategy (Issue 3 fix — Vosk properly integrated):
  * 1. PRIMARY: Browser Web Speech API (Chrome/Edge, online) — zero setup
  * 2. FALLBACK: Vosk via backend WebSocket (Firefox, offline) — needs vosk installed

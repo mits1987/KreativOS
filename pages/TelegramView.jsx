@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+﻿import React, { useState, useEffect } from 'react'
 import { Send, CheckCircle, XCircle, ExternalLink, Bot } from 'lucide-react'
 import api from '../utils/api'
 import useStore from '../store'

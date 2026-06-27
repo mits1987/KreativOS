@@ -67,7 +67,6 @@ async def search_hf(q: str = "", limit: int = 12):
 @router.get("/ollama-name")
 async def suggest_ollama_name(hf_id: str):
     """Convert HuggingFace model ID to ollama pull name"""
-    # Common mappings
     name_map = {
         "Qwen2.5-7B":  "qwen2.5:7b",
         "Qwen2.5-3B":  "qwen2.5:3b",
@@ -84,7 +83,6 @@ async def suggest_ollama_name(hf_id: str):
     for key, val in name_map.items():
         if key.lower() in hf_id.lower():
             return {"ollama_name": val, "found": True}
-    # Best guess from model name
     base = hf_id.split("/")[-1].lower()
     base = re.sub(r"-gguf|-instruct|-it|-v[\d.]+", "", base)
     base = re.sub(r"[-_]+", ":", base).strip(":")

@@ -1,16 +1,25 @@
-FROM python:3.11-slim
+import pytest
+import asyncio
+import os, sys
 
-WORKDIR /app
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-RUN apt-get update && apt-get install -y \
-    curl nodejs npm \
-    && rm -rf /var/lib/apt/lists/*
+# Required for pytest-asyncio
+pytest_plugins = ('anyio',)
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+@pytest.fixture
+def tmp_workspace(tmp_path):
+    os.environ["WORKSPACE_DIR"] = str(tmp_path)
+    # re-init backup module with new path
+    import backup
+    backup.init(tmp_path)
+    yield tmp_path
 
-COPY . .
-
-EXPOSE 8000
-
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+@pytest.fixture
+async def client(tmp_workspace):
+    # Force reimport with new WORKSPACE_DIR
+    import importlib, main as m
+    importlib.reload(m)
+    from httpx import AsyncClient, ASGITransport
+    async with AsyncClient(transport=ASGITransport(app=m.app), base_url="http://test") as c:
+        yield c

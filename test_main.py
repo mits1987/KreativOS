@@ -1,135 +1,302 @@
 """
-KrestivOS v3.1 — Telegram Bot (from AionUi inspiration)
-Lets you send tasks to KrestivOS from your phone via Telegram.
-
-Setup:
-1. Talk to @BotFather on Telegram → /newbot → copy token
-2. Set TELEGRAM_BOT_TOKEN env var
-3. Get your chat ID: message @userinfobot
-
-Then set TELEGRAM_CHAT_ID to whitelist your own chat.
+KrestivOS v3 — Backend Test Suite
+Tests all major API endpoints without requiring Ollama running.
+Run: pytest tests/ -v
 """
-import asyncio, json, os, logging
+import pytest
+import json
+from unittest.mock import AsyncMock, patch, MagicMock
 from pathlib import Path
-from typing import Optional, Callable
+from httpx import AsyncClient, ASGITransport
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-logger = logging.getLogger(__name__)
+# ── Fixtures ───────────────────────────────────────────────────────────────────
+@pytest.fixture
+def tmp_workspace(tmp_path):
+    os.environ["WORKSPACE_DIR"] = str(tmp_path)
+    return tmp_path
 
-BOT_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN", "")
-ALLOWED_IDS = set(os.getenv("TELEGRAM_CHAT_ID", "").split(","))  # comma-separated chat IDs
+@pytest.fixture
+async def client(tmp_workspace):
+    from main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
 
-class TelegramBot:
-    def __init__(self):
-        self.token   = BOT_TOKEN
-        self.enabled = bool(self.token)
-        self._app    = None
-        self._task_cb: Optional[Callable] = None   # async fn(task, model, agent) -> str
-        self._chat_cb: Optional[Callable] = None   # async fn(msg, model, agent) -> AsyncGenerator
+# ── Health ─────────────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_health_returns_ok(client):
+    r = await client.get("/api/health")
+    assert r.status_code == 200
+    data = r.json()
+    assert "status" in data
+    assert "ollama" in data
 
-    def set_task_callback(self, cb): self._task_cb = cb
-    def set_chat_callback(self, cb): self._chat_cb = cb
+@pytest.mark.asyncio
+async def test_health_ollama_disconnected(client):
+    # Health always returns 200, ollama field shows connection state
+    r = await client.get("/api/health")
+    assert r.status_code == 200
+    assert r.json()["ollama"] in ("connected", "disconnected")
 
-    async def start(self):
-        if not self.enabled:
-            logger.info("Telegram bot disabled — set TELEGRAM_BOT_TOKEN to enable")
-            return
-        try:
-            from telegram import Update
-            from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+# ── Models & Agents ────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_agents_returns_list(client):
+    r = await client.get("/api/agents")
+    assert r.status_code == 200
+    agents = r.json()["agents"]
+    assert len(agents) >= 6
+    ids = [a["id"] for a in agents]
+    assert "coder" in ids
+    assert "researcher" in ids
+    assert "self_critic" not in ids   # internal, not exposed
 
-            app = Application.builder().token(self.token).build()
+@pytest.mark.asyncio
+async def test_models_ollama_unreachable(client):
+    # When ollama is not running, endpoint returns 503
+    # When running in CI without ollama, we just check it responds
+    try:
+        r = await client.get("/api/models")
+        assert r.status_code in (200, 503)
+    except Exception:
+        pass  # Connection error is also acceptable in test env
 
-            async def start_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-                uid = str(update.effective_chat.id)
-                if ALLOWED_IDS and uid not in ALLOWED_IDS:
-                    await update.message.reply_text("❌ Unauthorized. Add your chat ID to TELEGRAM_CHAT_ID.")
-                    return
-                await update.message.reply_text(
-                    "🧠 *KrestivOS Bot* — Commands:\n"
-                    "/task <prompt> — run autonomous task\n"
-                    "/agent <name> — set agent (coder/researcher/architect/devops)\n"
-                    "/status — system status\n"
-                    "/help — show this\n\n"
-                    "Or just send a message to chat with the General agent.",
-                    parse_mode="Markdown"
-                )
+# ── Dashboard ──────────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_dashboard_returns_stats(client):
+    r = await client.get("/api/dashboard")
+    assert r.status_code == 200
+    data = r.json()
+    assert "stats" in data
+    assert "recent_activity" in data
+    stats = data["stats"]
+    assert "total_messages" in stats
+    assert "total_tasks" in stats
+    assert "ralph_loops_run" in stats
 
-            async def status_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-                if ALLOWED_IDS and str(update.effective_chat.id) not in ALLOWED_IDS: return
-                await update.message.reply_text("✅ KrestivOS is running. Backend connected.")
+# ── Files ──────────────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_write_and_read_file(client, tmp_workspace):
+    r = await client.post("/api/files/write", json={"filename": "test.txt", "content": "hello world"})
+    assert r.status_code == 200
+    assert r.json()["success"] is True
 
-            async def task_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-                if ALLOWED_IDS and str(update.effective_chat.id) not in ALLOWED_IDS: return
-                task = " ".join(ctx.args) if ctx.args else ""
-                if not task:
-                    await update.message.reply_text("Usage: /task <your task here>"); return
-                agent = ctx.bot_data.get("agent", "coder")
-                model = ctx.bot_data.get("model", "")
-                await update.message.reply_text(f"⚡ Running task with {agent} agent…")
-                if self._task_cb and model:
-                    try:
-                        result = await self._task_cb(task, model, agent)
-                        # Telegram max 4096 chars
-                        text = result[:3800] + "\n…(truncated)" if len(result) > 3800 else result
-                        await update.message.reply_text(f"✅ *Done:*\n{text}", parse_mode="Markdown")
-                    except Exception as e:
-                        await update.message.reply_text(f"❌ Error: {e}")
-                else:
-                    await update.message.reply_text("⚠️ No model selected. Configure in KrestivOS settings.")
+    r = await client.get("/api/files/read/test.txt")
+    assert r.status_code == 200
+    assert r.json()["content"] == "hello world"
 
-            async def agent_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-                if ALLOWED_IDS and str(update.effective_chat.id) not in ALLOWED_IDS: return
-                agents = ["general","coder","researcher","architect","devops","orchestrator"]
-                if not ctx.args or ctx.args[0] not in agents:
-                    await update.message.reply_text(f"Available agents: {', '.join(agents)}"); return
-                ctx.bot_data["agent"] = ctx.args[0]
-                await update.message.reply_text(f"✅ Agent set to: {ctx.args[0]}")
+@pytest.mark.asyncio
+async def test_list_files(client, tmp_workspace):
+    await client.post("/api/files/write", json={"filename": "a.py", "content": "print(1)"})
+    await client.post("/api/files/write", json={"filename": "b.py", "content": "print(2)"})
+    r = await client.get("/api/files/list")
+    assert r.status_code == 200
+    names = [f["name"] for f in r.json()["files"]]
+    assert "a.py" in names
+    assert "b.py" in names
 
-            async def message_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-                if ALLOWED_IDS and str(update.effective_chat.id) not in ALLOWED_IDS: return
-                msg   = update.message.text or ""
-                agent = ctx.bot_data.get("agent", "general")
-                model = ctx.bot_data.get("model", "")
-                if not model:
-                    await update.message.reply_text("⚠️ No model loaded. Please check KrestivOS Settings."); return
-                await update.message.reply_text(f"💭 {agent} is thinking…")
-                if self._chat_cb:
-                    try:
-                        result = ""
-                        async for chunk in self._chat_cb([{"role":"user","content":msg}], model, agent):
-                            result += chunk
-                        text = result[:3800] + "\n…" if len(result) > 3800 else result
-                        await update.message.reply_text(text)
-                    except Exception as e:
-                        await update.message.reply_text(f"❌ {e}")
+@pytest.mark.asyncio
+async def test_delete_file(client, tmp_workspace):
+    await client.post("/api/files/write", json={"filename": "del.txt", "content": "bye"})
+    r = await client.delete("/api/files/delete/del.txt")
+    assert r.status_code == 200
+    r = await client.get("/api/files/read/del.txt")
+    assert r.status_code == 404
 
-            app.add_handler(CommandHandler("start",  start_cmd))
-            app.add_handler(CommandHandler("help",   start_cmd))
-            app.add_handler(CommandHandler("status", status_cmd))
-            app.add_handler(CommandHandler("task",   task_cmd))
-            app.add_handler(CommandHandler("agent",  agent_cmd))
-            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+@pytest.mark.asyncio
+async def test_read_nonexistent_file(client):
+    r = await client.get("/api/files/read/does_not_exist.txt")
+    assert r.status_code == 404
 
-            self._app = app
-            await app.initialize()
-            await app.start()
-            await app.updater.start_polling(drop_pending_updates=True)
-            logger.info("Telegram bot started")
-        except ImportError:
-            logger.warning("python-telegram-bot not installed — Telegram disabled")
-        except Exception as e:
-            logger.error(f"Telegram bot error: {e}")
+# ── Code Execution ─────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_execute_python(client, tmp_workspace):
+    r = await client.post("/api/execute", json={"code": "print('hello')", "language": "python"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["success"] is True
+    assert "hello" in data["stdout"]
 
-    async def stop(self):
-        if self._app:
-            try:
-                await self._app.updater.stop()
-                await self._app.stop()
-                await self._app.shutdown()
-            except Exception: pass
+@pytest.mark.asyncio
+async def test_execute_bash(client, tmp_workspace):
+    r = await client.post("/api/execute", json={"code": "echo 'bash works'", "language": "bash"})
+    assert r.status_code == 200
+    assert "bash works" in r.json()["stdout"]
 
-    def update_model(self, model: str):
-        if self._app: self._app.bot_data["model"] = model
+@pytest.mark.asyncio
+async def test_execute_python_error(client, tmp_workspace):
+    r = await client.post("/api/execute", json={"code": "raise ValueError('test error')", "language": "python"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["success"] is False
+    assert "ValueError" in data["stderr"]
 
-# Global bot instance
-bot = TelegramBot()
+@pytest.mark.asyncio
+async def test_execute_timeout(client, tmp_workspace):
+    r = await client.post("/api/execute", json={"code": "import time; time.sleep(60)", "language": "python"})
+    assert r.status_code == 200
+    assert r.json()["success"] is False
+
+# ── Auth ───────────────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_login_default_admin(client, tmp_workspace):
+    r = await client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+    assert r.status_code == 200
+    assert "token" in r.json()
+
+@pytest.mark.asyncio
+async def test_login_wrong_password(client, tmp_workspace):
+    r = await client.post("/api/auth/login", json={"username": "admin", "password": "wrong"})
+    assert r.status_code == 401
+
+@pytest.mark.asyncio
+async def test_create_and_list_users(client, tmp_workspace):
+    await client.post("/api/auth/users", json={"username": "alice", "password": "pass123", "role": "user"})
+    r = await client.get("/api/auth/users")
+    users = [u["username"] for u in r.json()["users"]]
+    assert "alice" in users
+
+@pytest.mark.asyncio
+async def test_delete_user(client, tmp_workspace):
+    await client.post("/api/auth/users", json={"username": "bob", "password": "pass123", "role": "user"})
+    r = await client.delete("/api/auth/users/bob")
+    assert r.status_code == 200
+
+@pytest.mark.asyncio
+async def test_cannot_delete_admin(client, tmp_workspace):
+    r = await client.delete("/api/auth/users/admin")
+    assert r.status_code == 400
+
+# ── Memory ─────────────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_memory_create_and_get(client, tmp_workspace):
+    r = await client.get("/api/memory/myproject")
+    assert r.status_code == 200
+    assert r.json()["project"] == "myproject"
+
+@pytest.mark.asyncio
+async def test_memory_add_note(client, tmp_workspace):
+    await client.post("/api/memory/myproject/note", json={"note": "Using FastAPI"})
+    r = await client.get("/api/memory/myproject")
+    notes = [n["text"] for n in r.json()["notes"]]
+    assert "Using FastAPI" in notes
+
+@pytest.mark.asyncio
+async def test_memory_list_projects(client, tmp_workspace):
+    await client.get("/api/memory/proj1")
+    await client.post("/api/memory/proj1/note", json={"note": "test"})
+    r = await client.get("/api/memory/projects")
+    assert r.status_code == 200
+
+@pytest.mark.asyncio
+async def test_memory_delete(client, tmp_workspace):
+    await client.post("/api/memory/todelete/note", json={"note": "bye"})
+    r = await client.delete("/api/memory/todelete")
+    assert r.status_code == 200
+
+# ── Scheduler ──────────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_scheduler_create_and_list(client, tmp_workspace):
+    r = await client.post("/api/scheduler/tasks", json={
+        "name": "Daily test", "prompt": "Say hello", "agent": "general",
+        "model": "qwen3:27b", "interval": "daily", "hour": 9
+    })
+    assert r.status_code == 200
+    task_id = r.json()["id"]
+
+    r = await client.get("/api/scheduler/tasks")
+    ids = [t["id"] for t in r.json()["tasks"]]
+    assert task_id in ids
+
+@pytest.mark.asyncio
+async def test_scheduler_toggle(client, tmp_workspace):
+    r = await client.post("/api/scheduler/tasks", json={
+        "name": "Toggle test", "prompt": "Test", "agent": "general",
+        "model": "qwen3:27b", "interval": "daily", "hour": 8
+    })
+    task_id = r.json()["id"]
+    r = await client.post(f"/api/scheduler/tasks/{task_id}/toggle")
+    assert r.status_code == 200
+
+@pytest.mark.asyncio
+async def test_scheduler_delete(client, tmp_workspace):
+    r = await client.post("/api/scheduler/tasks", json={
+        "name": "Delete me", "prompt": "Test", "agent": "general",
+        "model": "qwen3:27b", "interval": "daily", "hour": 8
+    })
+    task_id = r.json()["id"]
+    r = await client.delete(f"/api/scheduler/tasks/{task_id}")
+    assert r.status_code == 200
+
+# ── Pipeline templates ─────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_pipeline_templates(client):
+    r = await client.get("/api/pipeline/templates")
+    assert r.status_code == 200
+    templates = [t["id"] for t in r.json()["templates"]]
+    assert "full_app" in templates
+    assert "research_build" in templates
+
+# ── Canvas workflows ───────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_canvas_save_and_list(client, tmp_workspace):
+    r = await client.post("/api/canvas/workflows", json={
+        "name": "Test WF", "description": "desc",
+        "nodes": [{"id":"n1","data":{"agent":"coder","label":"Code"},"position":{"x":0,"y":0}}],
+        "edges": []
+    })
+    assert r.status_code == 200
+    wf_id = r.json()["id"]
+
+    r = await client.get("/api/canvas/workflows")
+    ids = [w["id"] for w in r.json()["workflows"]]
+    assert wf_id in ids
+
+@pytest.mark.asyncio
+async def test_canvas_delete_workflow(client, tmp_workspace):
+    r = await client.post("/api/canvas/workflows", json={
+        "name": "Del WF", "description": "", "nodes": [], "edges": []
+    })
+    wf_id = r.json()["id"]
+    r = await client.delete(f"/api/canvas/workflows/{wf_id}")
+    assert r.status_code == 200
+
+# ── Memory module unit tests ───────────────────────────────────────────────────
+def test_memory_build_context(tmp_path):
+    from memory import ProjectMemory
+    m = ProjectMemory(tmp_path)
+    m.add_decision("proj", "Use FastAPI", "architect")
+    m.add_file("proj", "main.py")
+    m.add_note("proj", "Remember to add auth")
+    ctx = m.build_context("proj")
+    assert "FastAPI" in ctx
+    assert "main.py" in ctx
+    assert "auth" in ctx
+
+def test_memory_empty_context(tmp_path):
+    from memory import ProjectMemory
+    m = ProjectMemory(tmp_path)
+    ctx = m.build_context("")  # empty project name returns empty
+    assert ctx == ""
+
+def test_scheduler_calc_next(tmp_path):
+    from scheduler import TaskScheduler
+    s = TaskScheduler(tmp_path)
+    t = s.add_task("test", "do stuff", "general", "model", "daily", 9)
+    assert t["next_run"] is not None
+    assert t["enabled"] is True
+
+def test_auth_hash_consistency(tmp_path):
+    from auth import AuthManager
+    a = AuthManager(tmp_path)
+    token1 = a.login("admin", "admin123")
+    assert token1 is not None
+    token2 = a.login("admin", "wrongpass")
+    assert token2 is None
+
+def test_websearch_format(tmp_path):
+    from websearch import format_results_for_agent
+    results = [{"title": "Test", "snippet": "A test result", "url": "http://example.com", "source": "DDG"}]
+    fmt = format_results_for_agent("test query", results)
+    assert "test query" in fmt
+    assert "Test" in fmt

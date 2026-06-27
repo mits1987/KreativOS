@@ -1,60 +1,246 @@
 """
-Tests for Ralph Loop robustness — Issue 4 fix
+KrestivOS v3.1 — Office File Generation Agents (from AionUi inspiration)
+Generates real PPTX, DOCX, XLSX files from AI content
 """
-import pytest
-from unittest.mock import AsyncMock, patch
+import re
+from pathlib import Path
+from datetime import datetime
+from pptx import Presentation
+from pptx.util import Inches, Pt, Emu
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
+from docx import Document
+from docx.shared import Pt as DocPt, RGBColor as DocRGB, Cm, Inches as DocInches
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
-@pytest.mark.asyncio
-async def test_ralph_loop_passes_on_approved():
-    """Ralph Loop stops immediately when both critic and QA approve"""
-    with patch("main.call_ollama", new_callable=AsyncMock) as mock:
-        mock.return_value = "APPROVED\nQA Verdict: PASS"
-        import main as m
-        result = await m.ralph_loop("model", "task", "output", "coder")
-        assert result["passed"] is True
-        assert result["iterations"] >= 1
+# ── Colour palette ────────────────────────────────────────────────────────────
+PURPLE = RGBColor(0x8B, 0x5C, 0xF6)
+WHITE  = RGBColor(0xFF, 0xFF, 0xFF)
+DARK   = RGBColor(0x1E, 0x1E, 0x2E)
+LIGHT  = RGBColor(0xF1, 0xF5, 0xF9)
+ACCENT = RGBColor(0x10, 0xB9, 0x81)
 
-@pytest.mark.asyncio
-async def test_ralph_loop_retries_on_failure():
-    """Ralph Loop retries up to 3 times on failure"""
-    responses = ["NEEDS FIXES\n1. fix this", "QA Verdict: FAIL", "fixed output",
-                 "APPROVED", "QA Verdict: PASS"]
-    with patch("main.call_ollama", new_callable=AsyncMock) as mock:
-        mock.side_effect = responses * 3
-        import main as m
-        result = await m.ralph_loop("model", "task", "initial output", "coder")
-        assert result["iterations"] >= 1
-        assert "log" in result
+# ── PPTX Generator ────────────────────────────────────────────────────────────
 
-@pytest.mark.asyncio
-async def test_ralph_loop_max_3_iterations():
-    """Ralph Loop never exceeds 3 iterations even if always failing"""
-    with patch("main.call_ollama", new_callable=AsyncMock) as mock:
-        mock.return_value = "NEEDS FIXES\nBroken"
-        import main as m
-        result = await m.ralph_loop("model", "task", "bad output", "coder")
-        assert result["iterations"] == 3
-        assert len(result["log"]) == 3
+def _add_slide(prs, layout_idx=1):
+    layout = prs.slide_layouts[layout_idx]
+    return prs.slides.add_slide(layout)
 
-@pytest.mark.asyncio
-async def test_ralph_loop_handles_ollama_error():
-    """Ralph Loop handles Ollama connection errors gracefully"""
-    with patch("main.call_ollama", new_callable=AsyncMock) as mock:
-        mock.side_effect = Exception("Connection refused")
-        from main import ralph_loop
-        # Should not crash — return original output
-        try:
-            result = await ralph_loop("model", "task", "original", "coder")
-            # If it gets here it handled it
-        except Exception as e:
-            pytest.fail(f"Ralph loop should handle errors gracefully, got: {e}")
+def _set_bg(slide, color: RGBColor):
+    from pptx.oxml.ns import qn
+    from lxml import etree
+    bg = slide.background
+    fill = bg.fill
+    fill.solid()
+    fill.fore_color.rgb = color
 
-@pytest.mark.asyncio  
-async def test_ralph_loop_empty_output():
-    """Ralph Loop handles empty model output"""
-    with patch("main.call_ollama", new_callable=AsyncMock) as mock:
-        mock.return_value = ""
-        import main as m
-        result = await m.ralph_loop("model", "task", "", "coder")
-        assert "iterations" in result
-        assert "log" in result
+def _text_box(slide, text, x, y, w, h, size=18, bold=False, color=WHITE, align=PP_ALIGN.LEFT):
+    txBox = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
+    tf = txBox.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.alignment = align
+    run = p.add_run()
+    run.text = text
+    run.font.size = Pt(size)
+    run.font.bold = bold
+    run.font.color.rgb = color
+
+def generate_pptx(title: str, slides_data: list[dict], output_path: Path) -> Path:
+    """
+    slides_data: list of {"title": str, "content": str, "bullets": [str]}
+    """
+    prs = Presentation()
+    prs.slide_width  = Inches(13.33)
+    prs.slide_height = Inches(7.5)
+
+    # ── Cover slide ──────────────────────────────────────────────────────────
+    cover = _add_slide(prs, 0)
+    _set_bg(cover, DARK)
+    # Purple accent bar left
+    bar = cover.shapes.add_shape(1, Inches(0), Inches(0), Inches(0.3), Inches(7.5))
+    bar.fill.solid(); bar.fill.fore_color.rgb = PURPLE
+    bar.line.fill.background()
+    # Title
+    _text_box(cover, title, 0.6, 2.2, 11, 1.4, size=44, bold=True, color=WHITE, align=PP_ALIGN.LEFT)
+    _text_box(cover, f"Generated by KrestivOS · {datetime.now().strftime('%B %Y')}",
+              0.6, 3.8, 11, 0.5, size=16, color=RGBColor(0x94, 0xA3, 0xB8))
+
+    # ── Content slides ───────────────────────────────────────────────────────
+    for i, sd in enumerate(slides_data):
+        sl = _add_slide(prs, 1)
+        _set_bg(sl, DARK)
+        # Header bar
+        hdr = sl.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.33), Inches(1.1))
+        hdr.fill.solid(); hdr.fill.fore_color.rgb = PURPLE
+        hdr.line.fill.background()
+        # Slide number badge
+        badge = sl.shapes.add_shape(1, Inches(12.6), Inches(0.25), Inches(0.6), Inches(0.6))
+        badge.fill.solid(); badge.fill.fore_color.rgb = DARK
+        badge.line.fill.background()
+        _text_box(sl, str(i+1), 12.6, 0.25, 0.6, 0.6, size=14, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+        # Slide title
+        _text_box(sl, sd.get("title",""), 0.4, 0.15, 11.5, 0.8, size=24, bold=True, color=WHITE)
+        # Content or bullets
+        bullets = sd.get("bullets", [])
+        content  = sd.get("content","")
+        if bullets:
+            y = 1.3
+            for b in bullets[:8]:
+                _text_box(sl, f"• {b}", 0.5, y, 12.0, 0.55, size=18, color=RGBColor(0xE2, 0xE8, 0xF0))
+                y += 0.62
+        elif content:
+            _text_box(sl, content, 0.5, 1.3, 12.3, 5.5, size=18, color=RGBColor(0xE2, 0xE8, 0xF0))
+
+    prs.save(str(output_path))
+    return output_path
+
+def parse_ai_to_slides(ai_text: str, title: str) -> list[dict]:
+    """Parse AI markdown output into slide dicts"""
+    slides = []
+    current = None
+    for line in ai_text.split('\n'):
+        line = line.strip()
+        if line.startswith('## ') or line.startswith('# '):
+            if current: slides.append(current)
+            current = {"title": line.lstrip('#').strip(), "bullets": [], "content": ""}
+        elif line.startswith('- ') or line.startswith('* ') or line.startswith('• '):
+            if current is None: current = {"title": title, "bullets": [], "content": ""}
+            current["bullets"].append(line.lstrip('-*• ').strip())
+        elif line and current is not None:
+            current["content"] += line + " "
+    if current: slides.append(current)
+    if not slides:
+        # Fallback: split into chunks
+        paras = [p.strip() for p in ai_text.split('\n\n') if p.strip()]
+        for i, p in enumerate(paras[:10]):
+            slides.append({"title": f"Slide {i+1}", "bullets": [], "content": p[:400]})
+    return slides
+
+# ── DOCX Generator ────────────────────────────────────────────────────────────
+
+def generate_docx(title: str, content: str, output_path: Path) -> Path:
+    doc = Document()
+
+    # Page margins
+    for s in doc.sections:
+        s.left_margin = Cm(2.5); s.right_margin = Cm(2.5)
+        s.top_margin  = Cm(2.5); s.bottom_margin = Cm(2.5)
+
+    # Title
+    h = doc.add_heading(title, 0)
+    h.runs[0].font.color.rgb = DocRGB(0x8B, 0x5C, 0xF6)
+    h.runs[0].font.size = DocPt(28)
+
+    # Subtitle line
+    sub = doc.add_paragraph(f"Generated by KrestivOS · {datetime.now().strftime('%B %d, %Y')}")
+    sub.runs[0].font.color.rgb = DocRGB(0x94, 0xA3, 0xB8)
+    sub.runs[0].font.size = DocPt(11)
+    doc.add_paragraph()
+
+    # Parse and write content
+    for line in content.split('\n'):
+        line = line.strip()
+        if not line:
+            doc.add_paragraph()
+        elif line.startswith('# '):
+            h2 = doc.add_heading(line[2:], 1)
+            if h2.runs: h2.runs[0].font.color.rgb = DocRGB(0x8B, 0x5C, 0xF6)
+        elif line.startswith('## '):
+            h3 = doc.add_heading(line[3:], 2)
+            if h3.runs: h3.runs[0].font.color.rgb = DocRGB(0x6B, 0x7B, 0x8D)
+        elif line.startswith('### '):
+            h4 = doc.add_heading(line[4:], 3)
+        elif line.startswith('- ') or line.startswith('* ') or line.startswith('• '):
+            p = doc.add_paragraph(style='List Bullet')
+            p.add_run(line.lstrip('-*• ').strip()).font.size = DocPt(11)
+        elif line.startswith('**') and line.endswith('**'):
+            p = doc.add_paragraph()
+            r = p.add_run(line.strip('*'))
+            r.bold = True; r.font.size = DocPt(11)
+        else:
+            p = doc.add_paragraph(line)
+            p.runs[0].font.size = DocPt(11) if p.runs else None
+
+    doc.save(str(output_path))
+    return output_path
+
+# ── XLSX Generator ────────────────────────────────────────────────────────────
+
+def generate_xlsx(title: str, data: list[list], headers: list[str], output_path: Path) -> Path:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = title[:30]
+
+    HEADER_FILL = PatternFill("solid", fgColor="8B5CF6")
+    ALT_FILL    = PatternFill("solid", fgColor="F8F7FF")
+    HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
+    DATA_FONT   = Font(size=10)
+    THIN_BORDER = Border(
+        left=Side(style="thin", color="E2E8F0"),
+        right=Side(style="thin", color="E2E8F0"),
+        top=Side(style="thin", color="E2E8F0"),
+        bottom=Side(style="thin", color="E2E8F0"),
+    )
+
+    # Title row
+    ws.merge_cells(f"A1:{get_column_letter(max(len(headers),1))}1")
+    title_cell = ws["A1"]
+    title_cell.value = title
+    title_cell.font = Font(bold=True, size=14, color="8B5CF6")
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 32
+
+    # Headers row
+    for ci, h in enumerate(headers, 1):
+        cell = ws.cell(row=2, column=ci, value=h)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = THIN_BORDER
+    ws.row_dimensions[2].height = 24
+
+    # Data rows
+    for ri, row in enumerate(data, 3):
+        fill = ALT_FILL if ri % 2 == 0 else PatternFill()
+        for ci, val in enumerate(row, 1):
+            cell = ws.cell(row=ri, column=ci, value=val)
+            cell.fill = fill
+            cell.font = DATA_FONT
+            cell.border = THIN_BORDER
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+        ws.row_dimensions[ri].height = 20
+
+    # Auto column width
+    for ci, col_cells in enumerate(ws.columns, 1):
+        if ci > len(headers): break
+        max_len = max((len(str(c.value or "")) for c in col_cells), default=8)
+        ws.column_dimensions[get_column_letter(ci)].width = min(max_len + 4, 40)
+
+    # Freeze headers
+    ws.freeze_panes = "A3"
+    wb.save(str(output_path))
+    return output_path
+
+def parse_ai_to_table(ai_text: str) -> tuple[list[str], list[list]]:
+    """Extract markdown table from AI output"""
+    headers, rows = [], []
+    in_table = False
+    for line in ai_text.split('\n'):
+        line = line.strip()
+        if '|' in line and '---' not in line:
+            cells = [c.strip() for c in line.split('|') if c.strip()]
+            if not in_table:
+                headers = cells; in_table = True
+            else:
+                rows.append(cells)
+        elif in_table and '|' not in line and line:
+            break
+    if not headers:
+        # Fallback: treat lines as single-column
+        headers = ["Content"]
+        rows = [[l.strip()] for l in ai_text.split('\n') if l.strip()][:50]
+    return headers, rows
