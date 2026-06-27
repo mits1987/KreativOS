@@ -1,0 +1,18 @@
+{
+  "name": "KrestivOS — Agentic OS",
+  "short_name": "KrestivOS",
+  "description": "Self-hosted multi-agent AI operating system powered by Ollama",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#8b5cf6",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Chat",      "url": "/?view=chat",      "description": "Open Chat" },
+    { "name": "Tasks",     "url": "/?view=tasks",     "description": "Run Tasks" },
+    { "name": "Dashboard", "url": "/?view=dashboard", "description": "View Dashboard" }
+  ]
+}

@@ -1,0 +1,16 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+httpx==0.27.2
+pydantic==2.8.2
+python-multipart==0.0.9
+websockets==13.0
+# Office file generation
+python-pptx==1.0.2
+python-docx==1.1.2
+openpyxl==3.1.5
+# Telegram bot
+python-telegram-bot==21.6
+# Testing
+pytest==8.3.3
+pytest-asyncio==0.24.0
+anyio==4.6.2
