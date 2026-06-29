@@ -1,7 +1,7 @@
 {
   "name": "kreativos",
   "version": "1.0.0",
-  "description": "A self-hosted, browser-based Agentic OS that runs 100% locally on a CPU-only Oracle VM using Ollama.\r **v3 ships all 10 phases: Pipeline · Memory · Web Search · App Builder · Canvas · Voice · Code Review · Scheduler · Auth · PWA**",
+  "description": "KreativOS v1.0 — A self-hosted, browser-based Agentic OS running 100% locally on CPU via Ollama.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

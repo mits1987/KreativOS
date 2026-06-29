@@ -211,11 +211,25 @@ async def call_ollama(model: str, messages: list, system: str) -> str:
         return resp.json().get("message", {}).get("content", "")
 
 
+def _parse_filename_hint(line: str) -> str | None:
+    """Extract a filename from a comment like '# filename: foo.py' or '## file: foo.py'."""
+    low = line.lower()
+    if "filename:" in low or ("file:" in low and "profile" not in low):
+        parts = line.split(":", 1)
+        if len(parts) == 2:
+            name = parts[1].strip().lstrip("/")
+            if name and "/" in name or "." in name:
+                return name
+    return None
+
 def extract_and_save_files(text: str, project: str = "") -> list[str]:
     saved, in_block, block_lines, filename = [], False, [], None
-    for line in text.split("\n"):
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
         if line.startswith("```") and not in_block:
-            in_block, block_lines, filename = True, [], None
+            # Check the line immediately before the fence for a filename hint
+            pre_hint = _parse_filename_hint(lines[i - 1]) if i > 0 else None
+            in_block, block_lines, filename = True, [], pre_hint
         elif line.startswith("```") and in_block:
             in_block = False
             if filename and block_lines:
@@ -229,10 +243,9 @@ def extract_and_save_files(text: str, project: str = "") -> list[str]:
                     memory.add_file(project, filename)
             block_lines, filename = [], None
         elif in_block:
-            if not filename and ("filename:" in line or "file:" in line.lower()):
-                parts = line.split(":", 1)
-                if len(parts) == 2:
-                    filename = parts[1].strip().lstrip("/")
+            hint = _parse_filename_hint(line) if not filename else None
+            if hint:
+                filename = hint
             else:
                 block_lines.append(line)
     return saved
@@ -782,29 +795,28 @@ async def run_pipeline_route(
     stats["total_tasks"]   += 1
     track("pipeline_start", f"{req.template}: {req.task[:50]}")
 
-    result = await run_pipeline(
-        task=req.task,
-        template=req.template,
-        model=req.model,
-        call_ollama_fn=call_ollama,
-        agent_systems=AGENT_SYSTEMS,
-        get_skills_fn=get_skills_for_agent,
-        ralph_fn=ralph_loop,
-        workspace_dir=WORKSPACE_DIR,
-        track_fn=track,
-        extract_fn=lambda t: extract_and_save_files(t, req.project),
-    )
+    async def generate():
+        async for event in run_pipeline(
+            task=req.task,
+            template=req.template,
+            model=req.model,
+            call_ollama_fn=call_ollama,
+            agent_systems=AGENT_SYSTEMS,
+            get_skills_fn=get_skills_for_agent,
+            ralph_fn=ralph_loop,
+            workspace_dir=WORKSPACE_DIR,
+            track_fn=track,
+            extract_fn=lambda t: extract_and_save_files(t, req.project),
+        ):
+            yield f"data: {json.dumps(event)}\n\n"
+            if event["type"] == "done":
+                if req.project:
+                    memory.add_decision(req.project, f"Pipeline '{req.template}' run: {req.task[:60]}", "orchestrator")
+                audit_log.log("pipeline_done", req.template)
+                track("pipeline_done", req.template)
+        yield "data: [DONE]\n\n"
 
-    if req.project:
-        memory.add_decision(
-            req.project,
-            f"Pipeline '{req.template}' run: {req.task[:60]}",
-            "orchestrator",
-        )
-
-    audit_log.log("pipeline_done", req.template)
-    track("pipeline_done", req.template)
-    return result
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 # ── Memory  [P0-4: paginated] ─────────────────────────────────────────────────
@@ -957,7 +969,34 @@ async def run_workflow(
     task    = body.get("task", "")
     track("canvas_run", wf["name"])
 
-    nodes   = sorted(wf["nodes"], key=lambda n: n.get("position", {}).get("x", 0))
+    # Topological sort using saved edges; fall back to x-position if no edges
+    raw_nodes = wf["nodes"]
+    edges     = wf.get("edges", [])
+    if edges:
+        from collections import deque
+        node_map  = {n["id"]: n for n in raw_nodes}
+        in_deg    = {n["id"]: 0 for n in raw_nodes}
+        adj       = {n["id"]: [] for n in raw_nodes}
+        for e in edges:
+            s, t = e.get("source"), e.get("target")
+            if s in adj and t in in_deg:
+                adj[s].append(t)
+                in_deg[t] += 1
+        queue = deque(nid for nid, d in in_deg.items() if d == 0)
+        nodes = []
+        while queue:
+            nid = queue.popleft()
+            nodes.append(node_map[nid])
+            for t in adj[nid]:
+                in_deg[t] -= 1
+                if in_deg[t] == 0:
+                    queue.append(t)
+        # Cycle or disconnected graph — fall back
+        if len(nodes) != len(raw_nodes):
+            nodes = sorted(raw_nodes, key=lambda n: n.get("position", {}).get("x", 0))
+    else:
+        nodes = sorted(raw_nodes, key=lambda n: n.get("position", {}).get("x", 0))
+
     results, context = [], task
 
     for node in nodes:

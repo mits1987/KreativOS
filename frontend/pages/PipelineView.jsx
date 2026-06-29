@@ -64,8 +64,16 @@ export default function PipelineView() {
     if (!task.trim() || !selectedModel || running) return
     setRunning(true); setProgress('Starting pipeline…'); setResults([])
     try {
-      const r = await api.post('/api/pipeline/run', { task, model: selectedModel, template, project })
-      setResults(r.phases || [])
+      for await (const event of api.streamPipeline(task, selectedModel, template, project)) {
+        if (event.type === 'start') {
+          setProgress(`Running ${event.total} phases…`)
+        } else if (event.type === 'phase_start') {
+          setProgress(`Phase ${event.phase}: ${event.label}…`)
+        } else if (event.type === 'phase_done') {
+          setResults(prev => [...prev, event.phase])
+          setProgress(null)
+        }
+      }
     } catch(e) { setProgress('Error: ' + e.message) }
     finally { setRunning(false); setProgress(null) }
   }

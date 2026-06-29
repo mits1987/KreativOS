@@ -170,9 +170,30 @@ export const api = {
   runTask: (task, model, agent_type, use_ralph_loop = true, project = '') =>
     api.post('/api/task/run', { task, model, agent_type, use_ralph_loop, project }),
 
-  // Pipeline
-  pipelineTemplates: ()                       => api.get('/api/pipeline/templates'),
-  runPipeline:       (task, model, t, proj)   => api.post('/api/pipeline/run', { task, model, template: t, project: proj }),
+  // Pipeline — streaming SSE
+  pipelineTemplates: () => api.get('/api/pipeline/templates'),
+  async *streamPipeline(task, model, template, project = '') {
+    const r = await fetch(`${getBase()}/api/pipeline/run`, {
+      method: 'POST', headers: getHeaders(),
+      body: JSON.stringify({ task, model, template, project }),
+    })
+    if (!r.ok) { handle401(r); throw new Error(`Pipeline ${r.status}`) }
+    const reader = r.body.getReader()
+    const dec    = new TextDecoder()
+    let   buf    = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += dec.decode(value, { stream: true })
+      const lines = buf.split('\n'); buf = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const raw = line.slice(6)
+        if (raw === '[DONE]') return
+        try { yield JSON.parse(raw) } catch {}
+      }
+    }
+  },
 
   // Memory
   projects:          (limit = 50, offset = 0) => api.get(`/api/memory/projects?limit=${limit}&offset=${offset}`),
