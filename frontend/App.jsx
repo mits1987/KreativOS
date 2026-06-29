@@ -34,7 +34,6 @@ import { Download, RefreshCw, X } from 'lucide-react'
 // ── View registry ──────────────────────────────────────────────────────────────
 const VIEWS = {
   dashboard:   <DashboardView />,
-  orchestrator:<OrchestratorView />,
   chat:        <ChatView />,
   tasks:       <TasksView />,
   pipeline:    <PipelineView />,

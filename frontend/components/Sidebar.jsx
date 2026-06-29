@@ -3,18 +3,17 @@ import {
   MessageSquare, FolderOpen, Settings, ChevronLeft, Plus, Trash2,
   Zap, Brain, LayoutDashboard, Search, Package, GitBranch, Workflow,
   Blocks, Eye, Database, Clock, Users, Terminal, Shield, HardDrive,
-  BookOpen, Star, Bot, Sparkles, LogOut, Network,
+  BookOpen, Star, Bot, Sparkles, LogOut
 } from 'lucide-react'
 import useStore from '../store'
 import clsx from 'clsx'
 
 const NAV = [
   // Main
-  { id:'dashboard',   icon:LayoutDashboard, label:'Dashboard',    group:'main' },
-  { id:'orchestrator',icon:Network,         label:'Orchestrator', group:'main', badge:'New' },
-  { id:'chat',        icon:MessageSquare,   label:'Chat',         group:'main' },
-  { id:'tasks',       icon:Zap,             label:'Tasks',        group:'main' },
-  { id:'prompts',     icon:BookOpen,        label:'Prompts',      group:'main' },
+  { id:'dashboard',  icon:LayoutDashboard, label:'Dashboard',    group:'main' },
+  { id:'chat',       icon:MessageSquare,   label:'Chat',         group:'main' },
+  { id:'tasks',      icon:Zap,             label:'Tasks',        group:'main' },
+  { id:'prompts',    icon:BookOpen,        label:'Prompts',      group:'main' },
   // Build
   { id:'pipeline',   icon:GitBranch,       label:'Pipeline',     group:'build' },
   { id:'appbuilder', icon:Blocks,          label:'App Builder',  group:'build' },

@@ -131,14 +131,50 @@ export default function ChatView() {
 
     try {
       let full = ''
-      for await (const chunk of api.streamChat(selectedModel, history, selectedAgent)) {
-        if (abortRef.current) break
-        lastChunkRef.current = Date.now() // reset thinking timer on each chunk
+      const tick = (chunk) => {
+        lastChunkRef.current = Date.now()
         full += chunk
         updateLastMessage(convId, full)
       }
+
+      if (selectedAgent === 'orchestrator') {
+        const ICONS = { researcher:'🔍', architect:'🏗️', coder:'💻', devops:'⚙️', general:'🤖' }
+        for await (const event of api.streamOrchestrate(content, selectedModel)) {
+          if (abortRef.current) break
+          if      (event.type === 'planning')      tick('🎯 **Planning your task…**\n\n')
+          else if (event.type === 'plan') {
+            const chain = (event.steps || []).map(s => s.agent).join(' → ')
+            tick(`📋 **Plan:** ${chain}\n*${event.summary || ''}*\n\n`)
+          }
+          else if (event.type === 'agent_start') {
+            const icon = ICONS[event.agent] || '🤖'
+            tick(`${icon} **${event.agent}**${event.round > 1 ? ` (round ${event.round})` : ''}…\n`)
+          }
+          else if (event.type === 'tool_call') {
+            const argStr = Object.entries(event.args || {}).map(([k,v]) =>
+              `${k}=${JSON.stringify(v).slice(0,30)}`).join(', ')
+            tick(`\`  → ${event.tool}(${argStr})\`\n`)
+          }
+          else if (event.type === 'agent_done')   tick('✓ Done\n\n')
+          else if (event.type === 'audit_start')  tick('🔍 **Auditor reviewing…**\n')
+          else if (event.type === 'audit_result') {
+            const mark = event.passed ? '✅' : '⚠️'
+            tick(`${mark} Score: ${event.score}/10 — ${event.passed ? 'Passed' : 'Needs revision'}\n\n`)
+            if (!event.passed && event.feedback) tick(`*${event.feedback}*\n\n`)
+          }
+          else if (event.type === 'done') {
+            tick('\n---\n\n')
+            tick(event.output || '')
+          }
+          else if (event.type === 'error')        tick(`❌ ${event.message}`)
+        }
+      } else {
+        for await (const chunk of api.streamChat(selectedModel, history, selectedAgent)) {
+          if (abortRef.current) break
+          tick(chunk)
+        }
+      }
     } catch (e) {
-      // [Fix] Show connection lost — never auto-retry (would duplicate the message)
       setStreamError('Connection lost — please try sending again.')
       updateLastMessage(convId, '*(Connection lost. Please resend.)*')
     } finally {
