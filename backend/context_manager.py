@@ -5,6 +5,7 @@ Prevents silent context overflow by estimating token counts and trimming
 the oldest decisions/notes first when approaching the model's limit.
 """
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,8 @@ def build_full_system_prompt(
     Trims memory context (oldest decisions first) if over budget.
     """
     # Fixed parts (always included)
-    base = system
+    now  = datetime.now().astimezone()
+    base = f"[System date/time: {now:%A, %B %d, %Y at %I:%M:%S %p %Z}]\n\n{system}"
     if skills:
         base += "\n\n" + skills
 
