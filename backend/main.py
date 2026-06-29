@@ -60,6 +60,7 @@ from .office_agents import (
 )
 from . import permissions as perms
 from .paths        import get_workspace_dir
+from .orchestrator import orchestrate as run_orchestration, signal_permission
 from .pipeline     import PIPELINE_TEMPLATES, run_pipeline
 from .sandbox      import run_code_sandboxed
 from .scheduler    import TaskScheduler
@@ -591,6 +592,7 @@ async def respond_permission(req: PermissionRespondRequest, current_user: dict =
     if req.decision not in ("allow_once", "allow_session", "deny"):
         raise HTTPException(400, "Invalid decision")
     ok = perms.respond(req.req_id, req.decision)
+    signal_permission(req.req_id, req.decision)  # unblock any waiting orchestrator
     if not ok:
         raise HTTPException(404, "Permission request not found")
     return {"success": True}
@@ -783,6 +785,31 @@ async def run_task(
         "ralph":       ralph,
         "timestamp":   datetime.now().isoformat(),
     }
+
+
+# ── Orchestrator ───────────────────────────────────────────────────────────────
+@app.post("/api/orchestrate")
+@limiter.limit("5/minute")
+async def orchestrate_endpoint(
+    request: Request,
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    task    = body.get("task", "").strip()
+    model   = body.get("model", "").strip()
+    project = body.get("project", "")
+    if not task or not model:
+        raise HTTPException(400, "task and model required")
+
+    track("orchestrate", task[:60])
+    audit_log.log("orchestrate", f"Task: {task[:80]}", user=current_user.get("username"))
+
+    async def event_stream():
+        async for event in run_orchestration(task, model, project, WORKSPACE_DIR, OLLAMA_BASE_URL):
+            yield f"data: {json.dumps(event)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 # ── Pipeline  [rate-limited, auth] ────────────────────────────────────────────

@@ -158,6 +158,30 @@ export const api = {
     }
   },
 
+  // ── Orchestrator — streaming SSE ─────────────────────────────────────────
+  async *streamOrchestrate(task, model, project = '') {
+    const r = await fetch(`${getBase()}/api/orchestrate`, {
+      method: 'POST', headers: getHeaders(),
+      body: JSON.stringify({ task, model, project }),
+    })
+    if (!r.ok) { handle401(r); throw new Error(`Orchestrate ${r.status}`) }
+    const reader = r.body.getReader()
+    const dec    = new TextDecoder()
+    let   buf    = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += dec.decode(value, { stream: true })
+      const lines = buf.split('\n'); buf = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const raw = line.slice(6)
+        if (raw === '[DONE]') return
+        try { yield JSON.parse(raw) } catch {}
+      }
+    }
+  },
+
   // ── Named helpers ─────────────────────────────────────────────────────────
   health:            () => api.get('/api/health'),
 

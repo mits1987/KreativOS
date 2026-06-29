@@ -7,7 +7,8 @@ import ChatView       from './pages/ChatView'
 import TasksView      from './pages/TasksView'
 import PipelineView   from './pages/PipelineView'
 import CanvasView     from './pages/CanvasView'
-import AppBuilderView from './pages/AppBuilderView'
+import AppBuilderView    from './pages/AppBuilderView'
+import OrchestratorView  from './pages/OrchestratorView'
 import OfficeView     from './pages/OfficeView'
 import CodeReviewView from './pages/CodeReviewView'
 import FilesView      from './pages/FilesView'
@@ -33,6 +34,7 @@ import { Download, RefreshCw, X } from 'lucide-react'
 // ── View registry ──────────────────────────────────────────────────────────────
 const VIEWS = {
   dashboard:   <DashboardView />,
+  orchestrator:<OrchestratorView />,
   chat:        <ChatView />,
   tasks:       <TasksView />,
   pipeline:    <PipelineView />,
