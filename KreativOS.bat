@@ -20,6 +20,22 @@ if not exist "venv\Scripts\python.exe" (
     if errorlevel 1 ( echo ERROR: npm ci failed. Install Node.js from https://nodejs.org & pause & exit /b 1 )
     call npm run build
     cd ..
+    :: ── Open Design MCP ───────────────────────────────────────────────────────
+    echo [KreativOS] Installing Open Design MCP...
+    where npm >nul 2>&1
+    if not errorlevel 1 (
+        npm install -g @nexu-io/open-design --silent >nul 2>&1
+        where od >nul 2>&1
+        if not errorlevel 1 (
+            od mcp install claude >nul 2>&1
+            echo [KreativOS] Open Design MCP installed.
+        ) else (
+            echo [KreativOS] WARNING: od CLI not found after install — skipping MCP setup.
+        )
+    ) else (
+        echo [KreativOS] WARNING: npm not found — skipping Open Design MCP setup.
+    )
+
     echo [KreativOS] Setup complete!
 ) else (
     call venv\Scripts\activate

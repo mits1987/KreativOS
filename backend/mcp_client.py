@@ -10,7 +10,7 @@ _DEFAULTS = [
         "name": "open-design",
         "url": "http://localhost:7456/mcp",
         "description": "Open Design — prototypes, decks, HyperFrames (start with: od mcp install claude)",
-        "enabled": False,
+        "enabled": True,
     }
 ]
 
