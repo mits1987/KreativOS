@@ -415,6 +415,9 @@ OPEN_PATHS = {
 async def auth_middleware(request: Request, call_next):
     if not AUTH_REQUIRED:
         return await call_next(request)
+    # Only protect API routes — frontend static assets (JS, CSS, icons) are public
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
     if request.url.path in OPEN_PATHS or request.url.path.startswith("/api/hub/"):
         return await call_next(request)
     token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
