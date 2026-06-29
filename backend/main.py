@@ -1,24 +1,4 @@
-"""
-KreativOS — Main Application (All Phase 0 + Phase 1 Fixes Applied)
-
-Fixes in this version:
-  Phase 0:
-    [P0-1] Auth: removed admin fallback; Depends(get_current_user) on all sensitive routes
-    [P0-2] Sandbox: /api/execute uses run_code_sandboxed() from sandbox.py
-    [P0-3] Locking: all JSON managers have threading.Lock() (memory/scheduler/audit/skill_eval)
-    [P0-4] Pagination: /api/files/list, /api/audit, /api/memory/projects all paginated
-
-  Phase 1:
-    [P1-1] Router split: routes extracted to backend/routers/ (main.py now ~200 lines)
-    [P1-2] Rate limiting: slowapi on chat/task/pipeline endpoints
-    [P1-3] SSE keepalive: 25-second heartbeat in stream_ollama()
-    [P1-5] Config extracted: AGENT_SYSTEMS, SKILLS, AGENT_PERSONAS → config.py
-    [P1-6] Context manager: token budget enforced in build_full_system_prompt()
-    [P1-7] WORKSPACE_DIR default: ~/kreavitos_workspace (not /tmp)
-    [P1-8] FileWriteRequest: max_length=10_000_000
-    [P1-9] Expired token cleanup: hourly background task
-    [P1-10] start_time persistence: written to file, survives hot-reloads
-"""
+# KreativOS — Main Application
 import asyncio
 import json
 import os

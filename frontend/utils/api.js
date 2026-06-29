@@ -254,11 +254,6 @@ export const api = {
   reviewCode:        (code, language, model, filename = '') =>
     api.post('/api/review', { code, language, model, filename }),
 
-  // Skills
-  skillLeaderboard:  ()                       => api.get('/api/skills/leaderboard'),
-  skillsCatalog:     ()                       => api.get('/api/skills/catalog'),
-
-
   // Scheduler
   scheduledTasks:    ()                       => api.get('/api/scheduler/tasks'),
   createScheduled:   (t)                      => api.post('/api/scheduler/tasks', t),

@@ -7,29 +7,7 @@ import {
 } from 'lucide-react'
 import useStore from '../store'
 import clsx from 'clsx'
-
-// ── KreativOS brain mark (matches favicon.svg) ─────────────────────────────────
-function BrainMark({ size = 24 }) {
-  const s = size
-  const cx = s / 2, cy = s / 2, r = s * 0.13
-  return (
-    <svg width={s} height={s} viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <line x1="20" y1="16" x2="32" y2="32" stroke="#8B5CF6" strokeWidth="2.5" strokeLinecap="round" opacity="0.8"/>
-      <line x1="44" y1="16" x2="32" y2="32" stroke="#8B5CF6" strokeWidth="2.5" strokeLinecap="round" opacity="0.8"/>
-      <line x1="14" y1="38" x2="32" y2="32" stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" opacity="0.8"/>
-      <line x1="50" y1="38" x2="32" y2="32" stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" opacity="0.8"/>
-      <line x1="32" y1="32" x2="32" y2="52" stroke="#8B5CF6" strokeWidth="2.5" strokeLinecap="round" opacity="0.8"/>
-      <circle cx="20" cy="16" r="4.5" fill="#8B5CF6"/>
-      <circle cx="44" cy="16" r="4.5" fill="#8B5CF6"/>
-      <circle cx="14" cy="38" r="4" fill="#10B981"/>
-      <circle cx="50" cy="38" r="4" fill="#10B981"/>
-      <circle cx="32" cy="52" r="4" fill="#6366F1"/>
-      <circle cx="32" cy="32" r="8" fill="#8B5CF6"/>
-      <circle cx="32" cy="32" r="5" fill="currentColor"/>
-      <circle cx="32" cy="32" r="2.5" fill="#8B5CF6"/>
-    </svg>
-  )
-}
+import BrainMark from './BrainMark'
 
 // ── Nav structure — 4 purposeful groups ───────────────────────────────────────
 const NAV = [
@@ -79,7 +57,7 @@ function SidebarCollapsed({ activeView, setActiveView, setSidebarOpen, logout })
         className="mb-3 p-1.5 rounded-xl hover:bg-surface-3 transition-all group"
         title="Expand sidebar">
         <div className="w-7 h-7 text-surface-1">
-          <BrainMark size={28}/>
+          <BrainMark size={28} fill="currentColor"/>
         </div>
       </button>
 
@@ -172,7 +150,7 @@ export default function Sidebar() {
       <div className="flex items-center justify-between px-3 py-3 border-b border-white/5 flex-shrink-0">
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 flex-shrink-0 text-surface-1">
-            <BrainMark size={28}/>
+            <BrainMark size={28} fill="currentColor"/>
           </div>
           <div className="flex flex-col leading-none">
             <span className="text-sm font-semibold text-white tracking-tight">KreativOS</span>

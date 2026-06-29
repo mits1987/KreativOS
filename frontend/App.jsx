@@ -8,9 +8,7 @@ import TasksView      from './pages/TasksView'
 import PipelineView   from './pages/PipelineView'
 import CanvasView     from './pages/CanvasView'
 import AppBuilderView    from './pages/AppBuilderView'
-import OrchestratorView  from './pages/OrchestratorView'
 import OfficeView     from './pages/OfficeView'
-import CodeReviewView from './pages/CodeReviewView'
 import FilesView      from './pages/FilesView'
 import MemoryView     from './pages/MemoryView'
 import SkillsView     from './pages/SkillsView'
@@ -40,7 +38,6 @@ const VIEWS = {
   canvas:      <CanvasView />,
   appbuilder:  <AppBuilderView />,
   office:      <OfficeView />,
-  codereview:  <CodeReviewView />,
   files:       <FilesView />,
   memory:      <MemoryView />,
   skills:      <SkillsView />,

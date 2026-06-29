@@ -81,10 +81,3 @@ export function isPWAInstalled() {
     window.navigator.standalone === true
   )
 }
-
-// ── Notification permission ────────────────────────────────────────────────────
-export async function requestNotificationPermission() {
-  if (!('Notification' in window)) return false
-  const perm = await Notification.requestPermission()
-  return perm === 'granted'
-}

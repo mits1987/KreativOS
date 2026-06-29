@@ -192,7 +192,7 @@ OPENCODE_SKILLS: dict[str, dict] = {
             "- Rollback: `wrangler rollback` with previous deployment ID"
         ),
     },
-    "documentation": {
+    "docs-standards": {
         "description": "Documentation standards — AGENTS.md, README, component API docs",
         "content": (
             "## Documentation Standards\n"

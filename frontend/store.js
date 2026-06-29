@@ -160,10 +160,6 @@ const useStore = create((set, get) => ({
     set({ conversations: [], activeConvId: null })
   },
 
-  // ── Files ─────────────────────────────────────────────────────────────────
-  files:    [],
-  setFiles: (files) => set({ files }),
-
   // ── UI State ──────────────────────────────────────────────────────────────
   sidebarOpen:    true,
   setSidebarOpen: (v) => set({ sidebarOpen: v }),
