@@ -256,6 +256,7 @@ export const api = {
 
   // Skills
   skillLeaderboard:  ()                       => api.get('/api/skills/leaderboard'),
+  skillsCatalog:     ()                       => api.get('/api/skills/catalog'),
 
 
   // Scheduler

@@ -1190,6 +1190,28 @@ async def get_audit_log(
 async def skill_leaderboard(current_user: dict = Depends(get_current_user)):
     return {"leaderboard": skill_eval.leaderboard(), "timestamp": datetime.now().isoformat()}
 
+@app.get("/api/skills/catalog")
+async def skills_catalog(current_user: dict = Depends(get_current_user)):
+    from .config import OPENCODE_SKILLS, SKILLS
+    catalog = []
+    for k, v in OPENCODE_SKILLS.items():
+        catalog.append({
+            "id": k,
+            "name": k.replace("-", " ").title(),
+            "description": v["description"],
+            "source": "opencode",
+            "preview": v["content"][:300],
+        })
+    for k in SKILLS:
+        catalog.append({
+            "id": k,
+            "name": k.title(),
+            "description": f"Built-in skill for {k} best practices",
+            "source": "builtin",
+            "preview": SKILLS[k][:300],
+        })
+    return {"catalog": catalog}
+
 @app.get("/api/skills/{agent}")
 async def agent_skill_stats(agent: str, current_user: dict = Depends(get_current_user)):
     return skill_eval.get_agent(agent)
@@ -1316,19 +1338,46 @@ async def generate_office_file(
     mem   = memory.build_context(req.project) if req.project else ""
 
     if req.format == "pptx":
-        system = (AGENT_SYSTEMS["researcher"] + "\n\n" + SKILLS["documentation"] +
-                  "\nOutput structured content with ## headings for each slide.")
+        research_system = (
+            AGENT_SYSTEMS["researcher"] + "\n\n"
+            "Research the given topic thoroughly. Provide:\n"
+            "- Key facts, statistics, and data points\n"
+            "- Historical context or background\n"
+            "- Current trends and future outlook\n"
+            "- Real-world examples and case studies\n"
+            "- Expert opinions or industry insights\n"
+            + (("\n\n" + mem) if mem else "")
+        )
+        research = await call_ollama(req.model, [{"role": "user", "content": req.prompt}], research_system)
+
+        SLIDE_FORMAT = (
+            "You are a presentation designer. Convert the research below into a polished slide deck.\n\n"
+            "CRITICAL: Use EXACTLY this format — each slide starts with '## Slide N: Title' on its own line.\n\n"
+            "## Slide 1: Introduction\n"
+            "Brief hook and overview (2-3 sentences).\n\n"
+            "## Slide 2: Background\n"
+            "- Key point 1\n- Key point 2\n- Key point 3\n\n"
+            "(Continue for 8-12 slides covering: overview, key facts, data/statistics, "
+            "trends, examples, challenges, solutions, conclusion)\n\n"
+            "Research to convert:\n"
+        )
+        ai_output = await call_ollama(req.model,
+            [{"role": "user", "content": SLIDE_FORMAT + research}],
+            "You are a professional presentation writer. Output ONLY slide content in the ## Slide N: Title format. No preamble.")
+
+        system = ""  # used only for xlsx/docx branch below
     elif req.format == "xlsx":
         system = (AGENT_SYSTEMS["researcher"] +
                   "\nOutput your response as a markdown table with | column | headers |.")
+        if mem:
+            system += "\n\n" + mem
+        ai_output = await call_ollama(req.model, [{"role": "user", "content": req.prompt}], system)
     else:
         system = (AGENT_SYSTEMS["researcher"] + "\n\n" + SKILLS["documentation"] +
                   "\nWrite a well-structured document with # for title, ## for sections.")
-
-    if mem:
-        system += "\n\n" + mem
-
-    ai_output = await call_ollama(req.model, [{"role": "user", "content": req.prompt}], system)
+        if mem:
+            system += "\n\n" + mem
+        ai_output = await call_ollama(req.model, [{"role": "user", "content": req.prompt}], system)
 
     ts        = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in title[:40])

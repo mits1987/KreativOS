@@ -2,7 +2,11 @@ import pytest
 import asyncio
 import os, sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+# Repo root → enables 'from backend import main' and 'import backend.main'
+_backend_dir = os.path.dirname(os.path.dirname(__file__))
+_repo_root   = os.path.dirname(_backend_dir)
+sys.path.insert(0, _repo_root)    # KreativOS/ — for package-style imports
+sys.path.insert(0, _backend_dir)  # KreativOS/backend/ — for direct 'import memory' etc.
 os.environ["AUTH_REQUIRED"] = "false"
 
 
