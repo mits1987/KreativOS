@@ -21,6 +21,9 @@ YAGNI_RULES = """
 - Prefer flat over nested, functions over classes, stdlib over packages
 """
 
+# ── Agent IDs — single source of truth ──────────────────────────────────────────
+INTERNAL_AGENTS = frozenset({"self_critic", "qa"})
+
 # ── Agent System Prompts ───────────────────────────────────────────────────────
 AGENT_SYSTEMS: dict[str, str] = {
     "general":

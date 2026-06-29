@@ -155,7 +155,7 @@ export const api = {
 
   // ── Named helpers ─────────────────────────────────────────────────────────
   health:            () => api.get('/api/health'),
-  healthReady:       () => api.get('/api/health/ready'),
+
   models:            () => api.get('/api/models'),
   agents:            () => api.get('/api/agents'),
   dashboard:         () => api.get('/api/dashboard'),
@@ -206,17 +206,13 @@ export const api = {
 
   // Skills
   skillLeaderboard:  ()                       => api.get('/api/skills/leaderboard'),
-  agentSkillStats:   (agent)                  => api.get(`/api/skills/${agent}`),
-  gradeOutput:       (task, output, agent, model) =>
-    api.post('/api/skills/grade', { task, output, agent, model }),
+
 
   // Scheduler
   scheduledTasks:    ()                       => api.get('/api/scheduler/tasks'),
   createScheduled:   (t)                      => api.post('/api/scheduler/tasks', t),
   deleteScheduled:   (id)                     => api.delete(`/api/scheduler/tasks/${id}`),
   toggleScheduled:   (id)                     => api.post(`/api/scheduler/tasks/${id}/toggle`, {}),
-  runDueTasks:       ()                       => api.post('/api/scheduler/run-due', {}),
-
   // Prompts
   getPrompts:        ()                       => api.get('/api/prompts'),
   savePrompt:        (p)                      => api.post('/api/prompts', p),

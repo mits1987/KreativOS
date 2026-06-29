@@ -49,7 +49,7 @@ from .auth         import AuthManager, get_current_user, set_auth_manager, set_a
 from .backup       import init as backup_init
 from . import backup as backup_mod
 from .config       import (
-    AGENT_PERSONAS, AGENT_SYSTEMS, get_skills_for_agent,
+    AGENT_PERSONAS, AGENT_SYSTEMS, INTERNAL_AGENTS, get_skills_for_agent,
 )
 from .context_manager import build_full_system_prompt
 from .memory       import ProjectMemory
@@ -86,6 +86,19 @@ WORKSPACE_DIR   = get_workspace_dir()  # [P1-7] No longer /tmp
 AUTH_REQUIRED   = os.getenv("AUTH_REQUIRED", "false").lower() == "true"
 set_auth_required(AUTH_REQUIRED)  # sync flag to auth.py for get_current_user()
 perms.init(WORKSPACE_DIR)
+
+def reinit_workspace():
+    """Re-read WORKSPACE_DIR from env and re-init all services. Used by tests."""
+    global WORKSPACE_DIR, memory, scheduler, auth, skill_eval, audit_log
+    WORKSPACE_DIR = get_workspace_dir()
+    perms.init(WORKSPACE_DIR)
+    memory     = ProjectMemory(WORKSPACE_DIR)
+    scheduler  = TaskScheduler(WORKSPACE_DIR)
+    auth       = AuthManager(WORKSPACE_DIR)
+    skill_eval = SkillEvaluator(WORKSPACE_DIR)
+    audit_log  = AuditLog(WORKSPACE_DIR)
+    backup_init(WORKSPACE_DIR)
+    set_auth_manager(auth)
 
 # ── Services ───────────────────────────────────────────────────────────────────
 memory     = ProjectMemory(WORKSPACE_DIR)
@@ -498,7 +511,7 @@ async def list_agents():
         "agents": [
             {"id": k, "name": v["name"], "icon": v["icon"], "color": v["color"]}
             for k, v in AGENT_PERSONAS.items()
-            if k not in ("self_critic", "qa")
+            if k not in INTERNAL_AGENTS
         ]
     }
 
@@ -541,11 +554,6 @@ async def dashboard(current_user: dict = Depends(get_current_user)):
         "audit_tail":      audit_log.tail(10),
         "start_time":      START_TIME,
     }
-
-@app.get("/api/dashboard/v2")
-async def dashboard_v2(current_user: dict = Depends(get_current_user)):
-    return await dashboard(current_user)
-
 
 # ── Permission routes ────────────────────────────────────────────────
 @app.get("/api/permissions/pending")
@@ -1418,11 +1426,6 @@ async def delete_model(
     async with httpx.AsyncClient(timeout=30) as c:
         r = await c.delete(f"{OLLAMA_BASE_URL}/api/delete", json={"name": model_name})
         return {"success": r.status_code == 200}
-
-@app.post("/api/voice/transcribe")
-async def transcribe_audio(current_user: dict = Depends(get_current_user)):
-    return {"transcript": "", "error": "Vosk not configured — set VOSK_MODEL_PATH env var"}
-
 
 # ── Static frontend (built) — SPA fallback LAST so API routes take priority ───────
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"

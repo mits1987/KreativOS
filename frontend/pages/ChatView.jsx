@@ -4,7 +4,6 @@ import clsx from 'clsx'
 import useStore from '../store'
 import api from '../utils/api'
 import MessageRenderer from '../components/MessageRenderer'
-import VoiceButton from './VoiceButton'
 
 function AgentPicker({ agents, selected, onSelect }) {
   const [open, setOpen] = useState(false)
@@ -241,7 +240,6 @@ export default function ChatView() {
               <div className="flex items-center gap-2 flex-wrap">
                 <AgentPicker agents={agents} selected={selectedAgent} onSelect={setSelectedAgent} />
                 <ModelPicker models={models} selected={selectedModel} onSelect={setSelectedModel} />
-                <VoiceButton onTranscript={t => send(t)} />
               </div>
               <div className="flex items-center gap-2">
                 {isStreaming ? (

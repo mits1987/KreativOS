@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 @pytest.mark.asyncio
 async def test_ralph_loop_passes_on_approved():
     """Ralph Loop stops immediately when both critic and QA approve"""
-    with patch("main.call_ollama", new_callable=AsyncMock) as mock:
+    with patch("backend.main.call_ollama", new_callable=AsyncMock) as mock:
         mock.return_value = "APPROVED\nQA Verdict: PASS"
         import backend.main as m
         result = await m.ralph_loop("model", "task", "output", "coder")
@@ -19,7 +19,7 @@ async def test_ralph_loop_retries_on_failure():
     """Ralph Loop retries up to 3 times on failure"""
     responses = ["NEEDS FIXES\n1. fix this", "QA Verdict: FAIL", "fixed output",
                  "APPROVED", "QA Verdict: PASS"]
-    with patch("main.call_ollama", new_callable=AsyncMock) as mock:
+    with patch("backend.main.call_ollama", new_callable=AsyncMock) as mock:
         mock.side_effect = responses * 3
         import backend.main as m
         result = await m.ralph_loop("model", "task", "initial output", "coder")
@@ -29,7 +29,7 @@ async def test_ralph_loop_retries_on_failure():
 @pytest.mark.asyncio
 async def test_ralph_loop_max_3_iterations():
     """Ralph Loop never exceeds 3 iterations even if always failing"""
-    with patch("main.call_ollama", new_callable=AsyncMock) as mock:
+    with patch("backend.main.call_ollama", new_callable=AsyncMock) as mock:
         mock.return_value = "NEEDS FIXES\nBroken"
         import backend.main as m
         result = await m.ralph_loop("model", "task", "bad output", "coder")
@@ -39,7 +39,7 @@ async def test_ralph_loop_max_3_iterations():
 @pytest.mark.asyncio
 async def test_ralph_loop_handles_ollama_error():
     """Ralph Loop handles Ollama connection errors gracefully"""
-    with patch("main.call_ollama", new_callable=AsyncMock) as mock:
+    with patch("backend.main.call_ollama", new_callable=AsyncMock) as mock:
         mock.side_effect = Exception("Connection refused")
         from backend.main import ralph_loop
         # Should not crash — return original output
@@ -52,7 +52,7 @@ async def test_ralph_loop_handles_ollama_error():
 @pytest.mark.asyncio  
 async def test_ralph_loop_empty_output():
     """Ralph Loop handles empty model output"""
-    with patch("main.call_ollama", new_callable=AsyncMock) as mock:
+    with patch("backend.main.call_ollama", new_callable=AsyncMock) as mock:
         mock.return_value = ""
         import backend.main as m
         result = await m.ralph_loop("model", "task", "", "coder")

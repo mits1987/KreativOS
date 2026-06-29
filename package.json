@@ -18,7 +18,5 @@
     "url": "https://github.com/mits1987/KreativOS/issues"
   },
   "homepage": "https://github.com/mits1987/KreativOS#readme",
-  "dependencies": {
-    "docx": "^9.7.1"
-  }
+  "dependencies": {}
 }

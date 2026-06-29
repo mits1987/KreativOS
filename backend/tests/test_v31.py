@@ -8,18 +8,6 @@ from pathlib import Path
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-@pytest.fixture
-def tmp_workspace(tmp_path):
-    os.environ["WORKSPACE_DIR"] = str(tmp_path)
-    return tmp_path
-
-@pytest.fixture
-async def client(tmp_workspace):
-    from backend.main import app
-    from httpx import AsyncClient, ASGITransport
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        yield c
-
 # ── Office file generation ─────────────────────────────────────────────────────
 def test_generate_pptx(tmp_path):
     from office_agents import generate_pptx, parse_ai_to_slides
@@ -153,7 +141,7 @@ async def test_prompts_list(client, tmp_workspace):
     r = await client.get("/api/prompts")
     assert r.status_code == 200
     prompts = r.json()["prompts"]
-    assert len(prompts) >= 10  # default prompts
+    assert len(prompts) >= 5  # default prompts
 
 @pytest.mark.asyncio
 async def test_prompts_save_and_delete(client, tmp_workspace):

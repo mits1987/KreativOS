@@ -10,8 +10,8 @@ Setup:
 Then set TELEGRAM_CHAT_ID to whitelist your own chat.
 """
 import asyncio, json, os, logging
-from pathlib import Path
 from typing import Optional, Callable
+from .config import AGENT_SYSTEMS, INTERNAL_AGENTS
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ class TelegramBot:
 
             async def agent_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 if ALLOWED_IDS and str(update.effective_chat.id) not in ALLOWED_IDS: return
-                agents = ["general","coder","researcher","architect","devops","orchestrator"]
+                agents = [k for k in AGENT_SYSTEMS if k not in INTERNAL_AGENTS]
                 if not ctx.args or ctx.args[0] not in agents:
                     await update.message.reply_text(f"Available agents: {', '.join(agents)}"); return
                 ctx.bot_data["agent"] = ctx.args[0]

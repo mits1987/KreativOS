@@ -119,13 +119,6 @@ class AuthManager:
         self._save(users)
         return True
 
-    def change_password(self, username: str, new_password: str):
-        users = self._load()
-        if username in users:
-            users[username]["password"] = self._hash(new_password)
-            self._save(users)
-
-
 # ── Module-level singleton (set by main.py after init) ────────────────────────
 _auth_manager: Optional[AuthManager] = None
 # Auth requirement flag (set by main.py)
@@ -190,12 +183,3 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     return user
 
 
-def get_optional_user(authorization: Optional[str] = Header(None)) -> Optional[dict]:
-    """
-    Like get_current_user but returns None instead of raising.
-    Used for endpoints that work both authenticated and unauthenticated.
-    """
-    if not authorization or _auth_manager is None:
-        return None
-    token = authorization.removeprefix("Bearer ").strip()
-    return _auth_manager.verify(token) if token else None
