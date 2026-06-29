@@ -64,15 +64,6 @@ export default function App() {
   const [installed,    setInstalled]    = useState(isPWAInstalled())
   const [showOnboard,  setShowOnboard]  = useState(false)
 
-  // ── Auth gate ──────────────────────────────────────────────────────────────
-  if (!isAuthenticated) {
-    return (
-      <ErrorBoundary>
-        <LoginPage />
-      </ErrorBoundary>
-    )
-  }
-
   // ── Init: load models, agents, health ───────────────────────────────────────
   useEffect(() => {
     const init = async () => {
@@ -126,6 +117,15 @@ export default function App() {
       navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' })
     }
     window.location.reload()
+  }
+
+  // ── Auth gate ──────────────────────────────────────────────────────────────
+  if (!isAuthenticated) {
+    return (
+      <ErrorBoundary>
+        <LoginPage />
+      </ErrorBoundary>
+    )
   }
 
   return (

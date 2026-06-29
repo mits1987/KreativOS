@@ -42,7 +42,18 @@ const useStore = create((set, get) => ({
   },
 
   // ── Settings ───────────────────────────────────────────────────────────────
-  backendUrl:    localStorage.getItem('backendUrl') || 'http://localhost:8000',
+  backendUrl: (() => {
+    const stored = localStorage.getItem('backendUrl')
+    if (stored) {
+      const origin = window.location.origin
+      // Stale local backendUrl — use relative URLs instead (no CORS)
+      if (stored === origin || stored === 'http://localhost:8000' || stored === 'http://127.0.0.1:8000') {
+        localStorage.removeItem('backendUrl')
+        return ''
+      }
+    }
+    return stored || ''
+  })(),
   setBackendUrl: (url) => {
     localStorage.setItem('backendUrl', url)
     set({ backendUrl: url })

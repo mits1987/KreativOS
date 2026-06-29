@@ -9,7 +9,7 @@
  *  - 401 responses auto-clear auth and redirect to login
  */
 
-const getBase    = () => localStorage.getItem('backendUrl') || 'http://localhost:8000'
+const getBase    = () => localStorage.getItem('backendUrl') || ''
 const getHeaders = () => {
   const token = localStorage.getItem('authToken')
   return {
