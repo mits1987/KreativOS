@@ -13,6 +13,34 @@ const MAX_MESSAGES_PER_CONV = 200
 const PRUNE_AMOUNT          = 50
 
 const useStore = create((set, get) => ({
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  token:        localStorage.getItem('authToken') || null,
+  user:         JSON.parse(localStorage.getItem('authUser') || 'null'),
+  isAuthenticated: !!localStorage.getItem('authToken'),
+
+  login: async (username, password) => {
+    const base = localStorage.getItem('backendUrl') || 'http://localhost:8000'
+    const r = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    })
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      throw new Error(err.detail || 'Login failed')
+    }
+    const { token } = await r.json()
+    localStorage.setItem('authToken', token)
+    localStorage.setItem('authUser', JSON.stringify({ username }))
+    set({ token, user: { username }, isAuthenticated: true })
+  },
+
+  logout: () => {
+    localStorage.removeItem('authToken')
+    localStorage.removeItem('authUser')
+    set({ token: null, user: null, isAuthenticated: false })
+  },
+
   // ── Settings ───────────────────────────────────────────────────────────────
   backendUrl:    localStorage.getItem('backendUrl') || 'http://localhost:8000',
   setBackendUrl: (url) => {

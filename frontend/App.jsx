@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import ErrorBoundary from './components/ErrorBoundary'
 import Sidebar        from './components/Sidebar'
+import LoginPage      from './pages/LoginPage'
 import DashboardView  from './pages/DashboardView'
 import ChatView       from './pages/ChatView'
 import TasksView      from './pages/TasksView'
@@ -55,12 +56,22 @@ export default function App() {
   const {
     activeView, setModels, setAgents, setOllamaStatus,
     selectedModel, setSelectedModel, conversations, createConversation,
+    isAuthenticated, logout,
   } = useStore()
 
   const [installReady, setInstallReady] = useState(false)
   const [updateReady,  setUpdateReady]  = useState(false)   // [P1-6] PWA update
   const [installed,    setInstalled]    = useState(isPWAInstalled())
   const [showOnboard,  setShowOnboard]  = useState(false)
+
+  // ── Auth gate ──────────────────────────────────────────────────────────────
+  if (!isAuthenticated) {
+    return (
+      <ErrorBoundary>
+        <LoginPage />
+      </ErrorBoundary>
+    )
+  }
 
   // ── Init: load models, agents, health ───────────────────────────────────────
   useEffect(() => {

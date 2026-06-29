@@ -3,7 +3,7 @@ import {
   MessageSquare, FolderOpen, Settings, ChevronLeft, Plus, Trash2,
   Zap, Brain, LayoutDashboard, Search, Package, GitBranch, Workflow,
   Blocks, Eye, Database, Clock, Users, Terminal, Shield, HardDrive,
-  BookOpen, Star, Bot, Sparkles
+  BookOpen, Star, Bot, Sparkles, LogOut
 } from 'lucide-react'
 import useStore from '../store'
 import clsx from 'clsx'
@@ -40,7 +40,7 @@ export default function Sidebar() {
   const {
     conversations, activeConvId, setActiveConv, createConversation,
     deleteConversation, sidebarOpen, setSidebarOpen,
-    activeView, setActiveView, ollamaStatus, agents,
+    activeView, setActiveView, ollamaStatus, agents, logout,
   } = useStore()
   const [search, setSearch] = useState('')
   const filtered = conversations.filter(c => c.title.toLowerCase().includes(search.toLowerCase()))
@@ -57,6 +57,12 @@ export default function Sidebar() {
           <Icon size={15}/>
         </button>
       ))}
+      <div className="mt-auto">
+        <button onClick={logout} title="Sign out"
+          className="p-2 text-slate-600 hover:text-red-400 hover:bg-surface-3 rounded-lg transition-all">
+          <LogOut size={14}/>
+        </button>
+      </div>
     </div>
   )
 
@@ -140,9 +146,15 @@ export default function Sidebar() {
       </div>
 
       <div className="px-4 py-2.5 border-t border-white/5 flex-shrink-0">
-        <div className="flex items-center gap-2 text-xs text-slate-700">
-          <Terminal size={10}/>
-          <span>Ollama · 10 Phases · 19 Views</span>
+        <div className="flex items-center justify-between text-xs text-slate-700">
+          <div className="flex items-center gap-2">
+            <Terminal size={10}/>
+            <span>v1.0</span>
+          </div>
+          <button onClick={logout} title="Sign out"
+            className="p-1.5 text-slate-600 hover:text-red-400 hover:bg-surface-3 rounded-lg transition-all">
+            <LogOut size={13}/>
+          </button>
         </div>
       </div>
     </div>

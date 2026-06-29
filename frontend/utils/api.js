@@ -6,6 +6,7 @@
  *  - Streaming POST (chat) never auto-retries — would cause duplicate messages
  *  - SSE keepalive comments (": keepalive") are silently ignored
  *  - Connection lost indicator returned via thrown error for caller to handle
+ *  - 401 responses auto-clear auth and redirect to login
  */
 
 const getBase    = () => localStorage.getItem('backendUrl') || 'http://localhost:8000'
@@ -14,6 +15,15 @@ const getHeaders = () => {
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
+}
+
+const handle401 = (r) => {
+  if (r.status === 401) {
+    localStorage.removeItem('authToken')
+    localStorage.removeItem('authUser')
+    // Force full page reload so React re-mounts with auth state cleared
+    window.location.reload()
   }
 }
 
@@ -41,6 +51,7 @@ export const api = {
   // ── GET with retry ───────────────────────────────────────────────────────────
   async get(path) {
     const r = await fetchWithRetry(`${getBase()}${path}`, { headers: getHeaders() })
+    handle401(r)
     return r.json()
   },
 
@@ -51,6 +62,7 @@ export const api = {
       headers: getHeaders(),
       body:    JSON.stringify(body),
     })
+    handle401(r)
     if (!r.ok) throw new Error(`API ${r.status}: ${await r.text()}`)
     return r.json()
   },
@@ -60,6 +72,7 @@ export const api = {
       method:  'DELETE',
       headers: getHeaders(),
     })
+    handle401(r)
     if (!r.ok) throw new Error(`API ${r.status}`)
     return r.json()
   },
@@ -80,7 +93,10 @@ export const api = {
       }),
     })
 
-    if (!r.ok) throw new Error(`Stream ${r.status}`)
+    if (!r.ok) {
+      handle401(r)
+      throw new Error(`Stream ${r.status}`)
+    }
 
     const reader = r.body.getReader()
     const dec    = new TextDecoder()
