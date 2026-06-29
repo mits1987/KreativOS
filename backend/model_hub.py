@@ -26,6 +26,7 @@ FEATURED_MODELS = [
 ]
 
 class PullRequest(BaseModel):
+    model_config = {"protected_namespaces": ()}
     model_name: str          # ollama model name e.g. "qwen2.5:7b"
     hf_model_id: Optional[str] = None
 

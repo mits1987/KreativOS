@@ -1,23 +1,25 @@
 """
-KreativOS — Sandboxed Code Execution (Phase 0 Fix)
-Replaces bare subprocess.run with a low-privilege, resource-limited wrapper.
+KreativOS — Sandboxed Code Execution
 
-VM setup (one-time, run as root):
+Cross-platform sandbox that gracefully degrades on platforms without
+Unix user switching or resource limits.
+
+Platform-specific behaviour:
+  Linux:   Runs as sandbox_user with setrlimit CPU/VM/files/process limits
+  Windows: Runs as current user without resource limits (same isolation level
+           as the main server — no better, no worse)
+
+VM setup (one-time, Linux only):
     sudo useradd -r -s /bin/false -M sandbox_user
-    sudo chmod 755 /path/to/workspace  # sandbox_user needs read access
-
-This module is the single sandbox implementation reused by:
-  - /api/execute  (this file)
-  - Phase 6B Plugin System
-  - Phase 6C Test Runner
+    sudo chmod 755 /path/to/workspace
 """
 import asyncio
 import logging
 import os
-import pwd
-import resource
+import platform
 import signal
 import subprocess
+import sys
 import tempfile
 import uuid
 from pathlib import Path
@@ -25,24 +27,35 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# ── Platform detection ─────────────────────────────────────────────────────────
+IS_LINUX  = platform.system() == "Linux"
+IS_WINDOWS = platform.system() == "Windows"
+
+# ── Unix-only imports (graceful fallback) ───────────────────────────────────────
+if IS_LINUX:
+    import pwd
+    import resource
+else:
+    pwd      = None
+    resource = None
+
 # ── Constants ──────────────────────────────────────────────────────────────────
 SANDBOX_USER      = "sandbox_user"
 DEFAULT_TIMEOUT   = 30          # seconds
 MAX_OUTPUT_BYTES  = 1_000_000   # 1MB stdout/stderr cap
-MAX_MEMORY_BYTES  = 256 * 1024 * 1024  # 256MB virtual memory limit
-SAFE_PATH         = "/usr/bin:/bin"
+MAX_MEMORY_BYTES  = 256 * 1024 * 1024  # 256MB virtual memory limit (Linux only)
 
 # Language → command mapping
-LANG_COMMANDS = {
-    "python":     ["python3"],
-    "python3":    ["python3"],
-    "bash":       ["bash"],
-    "sh":         ["bash"],
+_LANG_CMDS = {
+    "python":     [sys.executable],
+    "python3":    [sys.executable],
+    "bash":       ["bash"] if IS_LINUX else None,
+    "sh":         ["bash"] if IS_LINUX else None,
     "javascript": ["node"],
     "js":         ["node"],
     "node":       ["node"],
 }
-
+LANG_COMMANDS  = {k: v for k, v in _LANG_CMDS.items() if v is not None}
 LANG_EXTENSIONS = {
     "python":     ".py",
     "python3":    ".py",
@@ -55,7 +68,9 @@ LANG_EXTENSIONS = {
 
 
 def _get_sandbox_uid_gid() -> tuple[Optional[int], Optional[int]]:
-    """Return (uid, gid) of sandbox_user, or (None, None) if not available."""
+    """Return (uid, gid) of sandbox_user, or (None, None) on Windows / missing user."""
+    if not IS_LINUX or pwd is None:
+        return None, None
     try:
         pw = pwd.getpwnam(SANDBOX_USER)
         return pw.pw_uid, pw.pw_gid
@@ -68,20 +83,28 @@ def _get_sandbox_uid_gid() -> tuple[Optional[int], Optional[int]]:
 
 
 def _set_resource_limits():
-    """Called in the child process (preexec_fn) to apply resource limits."""
+    """Called in child process (preexec_fn) — no-op on Windows."""
+    if resource is None:
+        return
     try:
-        # CPU time: 25 seconds (slightly less than wall-clock timeout)
         resource.setrlimit(resource.RLIMIT_CPU, (25, 25))
-        # Virtual memory
         resource.setrlimit(resource.RLIMIT_AS, (MAX_MEMORY_BYTES, MAX_MEMORY_BYTES))
-        # Max file size: 10MB
         resource.setrlimit(resource.RLIMIT_FSIZE, (10 * 1024 * 1024, 10 * 1024 * 1024))
-        # Max open files
         resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
-        # No new processes (prevents forkbombs)
         resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))
     except Exception as e:
         logger.warning(f"Could not set resource limits: {e}")
+
+
+def _kill_process_group(proc):
+    """Kill the entire process group — Windows-safe fallback."""
+    if IS_LINUX:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            return
+        except ProcessLookupError:
+            pass
+    proc.kill()
 
 
 def run_sandboxed(
@@ -90,54 +113,47 @@ def run_sandboxed(
     timeout: int = DEFAULT_TIMEOUT,
     env_extra: Optional[dict] = None,
 ) -> dict:
-    """
-    Run a command in a sandboxed subprocess.
+    """Run a command in a sandboxed subprocess.
 
-    Returns:
-        {stdout, stderr, success, returncode, error?}
+    Returns {stdout, stderr, success, returncode, error?}
     """
     uid, gid = _get_sandbox_uid_gid()
 
     safe_env = {
-        "HOME":   "/tmp",
-        "PATH":   SAFE_PATH,
-        "TMPDIR": "/tmp",
-        "LANG":   "en_US.UTF-8",
+        "PATH":   os.environ.get("PATH", ""),
+        "TMP":    tempfile.gettempdir(),
     }
+    if IS_LINUX:
+        safe_env["HOME"]   = "/tmp"
+        safe_env["TMPDIR"] = "/tmp"
+        safe_env["LANG"]   = "en_US.UTF-8"
     if env_extra:
         safe_env.update(env_extra)
 
-    kwargs: dict = {
-        "capture_output": True,
-        "text":           True,
-        "timeout":        timeout,
-        "cwd":            cwd,
-        "env":            safe_env,
-        "start_new_session": True,   # new process group for clean kill
-        "preexec_fn":     _set_resource_limits,
+    popen_kwargs: dict = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text":   True,
+        "cwd":    cwd,
+        "env":    safe_env,
     }
 
-    if uid is not None and gid is not None:
-        kwargs["user"]  = uid
-        kwargs["group"] = gid
+    if IS_LINUX:
+        popen_kwargs["start_new_session"] = True
+        popen_kwargs["preexec_fn"] = _set_resource_limits
+        if uid is not None and gid is not None:
+            popen_kwargs["user"]  = uid
+            popen_kwargs["group"] = gid
+    elif IS_WINDOWS:
+        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
     proc = None
     try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            **{k: v for k, v in kwargs.items()
-               if k not in ("capture_output", "timeout")},
-        )
+        proc = subprocess.Popen(cmd, **popen_kwargs)
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            # Kill the entire process group, not just the parent
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except ProcessLookupError:
-                proc.kill()
+            _kill_process_group(proc)
             proc.communicate()
             return {
                 "stdout":     "",
@@ -147,9 +163,8 @@ def run_sandboxed(
                 "error":      f"Execution timed out after {timeout} seconds",
             }
 
-        # Truncate oversized output
-        stdout = stdout[:MAX_OUTPUT_BYTES]
-        stderr = stderr[:MAX_OUTPUT_BYTES]
+        stdout = (stdout or "")[:MAX_OUTPUT_BYTES]
+        stderr = (stderr or "")[:MAX_OUTPUT_BYTES]
 
         return {
             "stdout":     stdout,
@@ -160,10 +175,7 @@ def run_sandboxed(
 
     except Exception as e:
         if proc:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except Exception:
-                pass
+            _kill_process_group(proc)
         return {
             "stdout":     "",
             "stderr":     "",
@@ -174,10 +186,7 @@ def run_sandboxed(
 
 
 def run_code_sandboxed(code: str, language: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
-    """
-    Write code to a temp file and execute it sandboxed.
-    Used by /api/execute.
-    """
+    """Write code to a temp file and execute it sandboxed."""
     language = language.lower()
     cmd = LANG_COMMANDS.get(language)
     ext = LANG_EXTENSIONS.get(language, ".txt")
@@ -194,8 +203,5 @@ def run_code_sandboxed(code: str, language: str, timeout: int = DEFAULT_TIMEOUT)
         code_file = os.path.join(tmpdir, f"code{ext}")
         with open(code_file, "w") as f:
             f.write(code)
-        # Make readable by sandbox_user
-        os.chmod(code_file, 0o644)
-        os.chmod(tmpdir, 0o755)
 
         return run_sandboxed(cmd + [code_file], cwd=tmpdir, timeout=timeout)
