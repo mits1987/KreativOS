@@ -172,10 +172,10 @@ export const api = {
 
   // Pipeline — streaming SSE
   pipelineTemplates: () => api.get('/api/pipeline/templates'),
-  async *streamPipeline(task, model, template, project = '') {
+  async *streamPipeline(task, model, template, project = '', skip_ralph = false) {
     const r = await fetch(`${getBase()}/api/pipeline/run`, {
       method: 'POST', headers: getHeaders(),
-      body: JSON.stringify({ task, model, template, project }),
+      body: JSON.stringify({ task, model, template, project, skip_ralph }),
     })
     if (!r.ok) { handle401(r); throw new Error(`Pipeline ${r.status}`) }
     const reader = r.body.getReader()

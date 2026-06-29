@@ -163,9 +163,13 @@ export default function ModelHubView() {
     setProgress({ pct: 0, status: 'Starting download…' })
 
     try {
+      const token = localStorage.getItem('authToken')
       const resp = await fetch('/api/hub/pull', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ model_name: ollamaName, hf_model_id: model.id }),
       })
       const reader = resp.body.getReader()

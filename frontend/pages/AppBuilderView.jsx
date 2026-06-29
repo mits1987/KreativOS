@@ -18,6 +18,7 @@ export default function AppBuilderView() {
   const [appType, setAppType] = useState('fullstack')
   const [description, setDescription] = useState('')
   const [project, setProject] = useState('')
+  const [skipRalph, setSkipRalph] = useState(false)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState(null)
   const [previewFile, setPreviewFile] = useState(null)
@@ -28,7 +29,7 @@ export default function AppBuilderView() {
     setRunning(true); setResult(null)
     try {
       const r = await api.post('/api/appbuilder/generate', {
-        description, model: selectedModel, app_type: appType, project
+        description, model: selectedModel, app_type: appType, project, skip_ralph: skipRalph
       })
       setResult(r)
     } catch(e) { console.error(e) }
@@ -86,8 +87,14 @@ export default function AppBuilderView() {
               placeholder="Describe your app in detail. Include features, tech preferences, and any requirements…"
               className="input-base w-full resize-none mb-3"/>
 
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-slate-600">Model: <span className="font-mono">{selectedModel||'none'}</span></span>
+            <div className="flex justify-between items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <div onClick={() => setSkipRalph(!skipRalph)}
+                  className={`w-8 h-4 rounded-full transition-colors flex-shrink-0 ${skipRalph ? 'bg-slate-600' : 'bg-accent-purple/50'}`}>
+                  <div className={`w-3 h-3 rounded-full bg-white mt-0.5 ml-0.5 transition-transform ${skipRalph ? 'translate-x-4' : ''}`}/>
+                </div>
+                <span className="text-xs text-slate-500">Skip Ralph {skipRalph ? '(fast mode)' : '(quality check on)'}</span>
+              </label>
               <button onClick={build} disabled={!description.trim()||!selectedModel||running}
                 className="btn-primary flex items-center gap-2 disabled:opacity-30">
                 {running ? <><RefreshCw size={14} className="animate-spin"/>Building…</> : <><Play size={14}/>Build App</>}

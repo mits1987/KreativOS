@@ -13,16 +13,16 @@ HF_API = "https://huggingface.co/api"
 
 # Curated CPU-friendly GGUF models — verified to work with Ollama on CPU
 FEATURED_MODELS = [
-    {"id": "bartowski/Qwen2.5-7B-Instruct-GGUF",       "name": "Qwen 2.5 7B",        "size": "4.7GB", "ram": "6GB",  "speed": "Fast",   "tag": "Recommended"},
-    {"id": "bartowski/Llama-3.2-3B-Instruct-GGUF",     "name": "Llama 3.2 3B",       "size": "2.0GB", "ram": "4GB",  "speed": "Fastest","tag": "Lightweight"},
-    {"id": "bartowski/Mistral-7B-Instruct-v0.3-GGUF",  "name": "Mistral 7B",         "size": "4.1GB", "ram": "6GB",  "speed": "Fast",   "tag": "Popular"},
-    {"id": "bartowski/gemma-2-2b-it-GGUF",             "name": "Gemma 2 2B",         "size": "1.6GB", "ram": "3GB",  "speed": "Fastest","tag": "Lightweight"},
-    {"id": "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF","name": "Llama 3.1 8B",       "size": "4.9GB", "ram": "8GB",  "speed": "Medium", "tag": "Capable"},
-    {"id": "bartowski/Phi-3.5-mini-instruct-GGUF",     "name": "Phi 3.5 Mini",       "size": "2.2GB", "ram": "4GB",  "speed": "Fast",   "tag": "Microsoft"},
-    {"id": "bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF","name":"DeepSeek R1 7B",     "size": "4.7GB", "ram": "6GB",  "speed": "Fast",   "tag": "Reasoning"},
-    {"id": "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF", "name": "Qwen 2.5 Coder 7B", "size": "4.7GB", "ram": "6GB",  "speed": "Fast",   "tag": "Coding"},
-    {"id": "bartowski/SmolLM2-1.7B-Instruct-GGUF",     "name": "SmolLM2 1.7B",       "size": "1.0GB", "ram": "2GB",  "speed": "Fastest","tag": "Tiny"},
-    {"id": "bartowski/Codestral-22B-v0.1-GGUF",        "name": "Codestral 22B",      "size": "13GB",  "ram": "16GB", "speed": "Slow",   "tag": "Pro Coding"},
+    {"id": "bartowski/Qwen2.5-7B-Instruct-GGUF",        "ollama_name": "qwen2.5:7b",         "name": "Qwen 2.5 7B",        "size": "4.7GB", "ram": "6GB",  "speed": "Fast",   "tag": "Recommended"},
+    {"id": "bartowski/Llama-3.2-3B-Instruct-GGUF",      "ollama_name": "llama3.2:3b",        "name": "Llama 3.2 3B",       "size": "2.0GB", "ram": "4GB",  "speed": "Fastest","tag": "Lightweight"},
+    {"id": "bartowski/Mistral-7B-Instruct-v0.3-GGUF",   "ollama_name": "mistral:7b",         "name": "Mistral 7B",         "size": "4.1GB", "ram": "6GB",  "speed": "Fast",   "tag": "Popular"},
+    {"id": "bartowski/gemma-2-2b-it-GGUF",              "ollama_name": "gemma2:2b",          "name": "Gemma 2 2B",         "size": "1.6GB", "ram": "3GB",  "speed": "Fastest","tag": "Lightweight"},
+    {"id": "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF", "ollama_name": "llama3.1:8b",        "name": "Llama 3.1 8B",       "size": "4.9GB", "ram": "8GB",  "speed": "Medium", "tag": "Capable"},
+    {"id": "bartowski/Phi-3.5-mini-instruct-GGUF",      "ollama_name": "phi3.5:3.8b",        "name": "Phi 3.5 Mini",       "size": "2.2GB", "ram": "4GB",  "speed": "Fast",   "tag": "Microsoft"},
+    {"id": "bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF","ollama_name": "deepseek-r1:7b",     "name": "DeepSeek R1 7B",     "size": "4.7GB", "ram": "6GB",  "speed": "Fast",   "tag": "Reasoning"},
+    {"id": "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF",  "ollama_name": "qwen2.5-coder:7b",  "name": "Qwen 2.5 Coder 7B", "size": "4.7GB", "ram": "6GB",  "speed": "Fast",   "tag": "Coding"},
+    {"id": "bartowski/SmolLM2-1.7B-Instruct-GGUF",      "ollama_name": "smollm2:1.7b",       "name": "SmolLM2 1.7B",       "size": "1.0GB", "ram": "2GB",  "speed": "Fastest","tag": "Tiny"},
+    {"id": "bartowski/Codestral-22B-v0.1-GGUF",         "ollama_name": "codestral:22b",      "name": "Codestral 22B",      "size": "13GB",  "ram": "16GB", "speed": "Slow",   "tag": "Pro Coding"},
 ]
 
 class PullRequest(BaseModel):
@@ -85,6 +85,8 @@ async def suggest_ollama_name(hf_id: str):
         if key.lower() in hf_id.lower():
             return {"ollama_name": val, "found": True}
     base = hf_id.split("/")[-1].lower()
-    base = re.sub(r"-gguf|-instruct|-it|-v[\d.]+", "", base)
-    base = re.sub(r"[-_]+", ":", base).strip(":")
+    base = re.sub(r"-gguf|-instruct|-it|-v[\d.]+", "", base, flags=re.IGNORECASE)
+    base = re.sub(r"[-_]+", "-", base).strip("-")
+    # Convert "model-size" pattern to "model:size" (e.g. "llama3.2-3b" → "llama3.2:3b")
+    base = re.sub(r"-(\d+\.?\d*b)$", r":\1", base)
     return {"ollama_name": base, "found": False}

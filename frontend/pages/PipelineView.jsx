@@ -56,6 +56,7 @@ export default function PipelineView() {
   const [task, setTask] = useState('')
   const [template, setTemplate] = useState('full_app')
   const [project, setProject] = useState('')
+  const [skipRalph, setSkipRalph] = useState(false)
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState([])
   const [progress, setProgress] = useState(null)
@@ -64,7 +65,7 @@ export default function PipelineView() {
     if (!task.trim() || !selectedModel || running) return
     setRunning(true); setProgress('Starting pipeline…'); setResults([])
     try {
-      for await (const event of api.streamPipeline(task, selectedModel, template, project)) {
+      for await (const event of api.streamPipeline(task, selectedModel, template, project, skipRalph)) {
         if (event.type === 'start') {
           setProgress(`Running ${event.total} phases…`)
         } else if (event.type === 'phase_start') {
@@ -121,7 +122,13 @@ export default function PipelineView() {
             placeholder="Describe what you want to build…"
             className="input-base w-full resize-none mb-3"/>
           <div className="flex justify-between items-center">
-            <span className="text-xs text-slate-600 font-mono">{selectedModel||'no model'}</span>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <div onClick={() => setSkipRalph(!skipRalph)}
+                className={`w-8 h-4 rounded-full transition-colors ${skipRalph ? 'bg-slate-600' : 'bg-accent-purple/50'}`}>
+                <div className={`w-3 h-3 rounded-full bg-white mt-0.5 ml-0.5 transition-transform ${skipRalph ? 'translate-x-4' : ''}`}/>
+              </div>
+              <span className="text-xs text-slate-500">Skip Ralph Loop {skipRalph ? '(faster, less refined)' : '(on)'}</span>
+            </label>
             <button onClick={run} disabled={!task.trim()||!selectedModel||running}
               className="btn-primary flex items-center gap-2 disabled:opacity-30">
               <Play size={14}/>{running?'Running pipeline…':'Run Pipeline'}

@@ -171,14 +171,14 @@ async def stream_ollama(
         "messages": [{"role": "system", "content": system}] + messages,
         "stream":   True,
     }
-    last_chunk_time = asyncio.get_event_loop().time()
+    last_chunk_time = asyncio.get_running_loop().time()
 
     async with httpx.AsyncClient(timeout=300) as client:
         async with client.stream(
             "POST", f"{OLLAMA_BASE_URL}/api/chat", json=payload
         ) as resp:
             async for line in resp.aiter_lines():
-                now = asyncio.get_event_loop().time()
+                now = asyncio.get_running_loop().time()
 
                 # [P1-3] Keepalive: send SSE comment so client connection stays alive
                 if now - last_chunk_time > KEEPALIVE_INTERVAL:
@@ -208,7 +208,11 @@ async def call_ollama(model: str, messages: list, system: str) -> str:
     }
     async with httpx.AsyncClient(timeout=300) as client:
         resp = await client.post(f"{OLLAMA_BASE_URL}/api/chat", json=payload)
-        return resp.json().get("message", {}).get("content", "")
+        resp.raise_for_status()
+        data = resp.json()
+        if "error" in data:
+            raise RuntimeError(f"Ollama error: {data['error']}")
+        return data.get("message", {}).get("content", "")
 
 
 def _parse_filename_hint(line: str) -> str | None:
@@ -377,6 +381,7 @@ class PipelineRequest(BaseModel):
     model: str
     template: str = "full_app"
     project: Optional[str] = ""
+    skip_ralph: bool = False
 
 class FileWriteRequest(BaseModel):
     filename: str
@@ -766,7 +771,7 @@ async def run_task(
 
     return {
         "task":        req.task,
-        "agent":       AGENT_PERSONAS[req.agent_type]["name"],
+        "agent":       AGENT_PERSONAS.get(req.agent_type, AGENT_PERSONAS["general"])["name"],
         "result":      out,
         "saved_files": list(set(saved)),
         "ralph":       ralph,
@@ -807,6 +812,7 @@ async def run_pipeline_route(
             workspace_dir=WORKSPACE_DIR,
             track_fn=track,
             extract_fn=lambda t: extract_and_save_files(t, req.project),
+            skip_ralph=req.skip_ralph,
         ):
             yield f"data: {json.dumps(event)}\n\n"
             if event["type"] == "done":
@@ -876,6 +882,7 @@ async def generate_app(
     model       = body.get("model", "")
     app_type    = body.get("app_type", "web")
     project     = body.get("project", "")
+    skip_ralph  = bool(body.get("skip_ralph", False))
     stats["total_tasks"] += 1
     track("appbuilder", description[:50])
 
@@ -896,16 +903,18 @@ async def generate_app(
     )
 
     output = await call_ollama(model, [{"role": "user", "content": prompt}], system)
-    ralph  = await ralph_loop(model, description, output, "coder")
-    final  = ralph["output"]
-    saved  = extract_and_save_files(final, project)
+    ralph  = None
+    if not skip_ralph:
+        ralph = await ralph_loop(model, description, output, "coder")
+        output = ralph["output"]
+    saved  = extract_and_save_files(output, project)
 
     if project:
         memory.add_decision(project, f"Built {app_type} app: {description[:60]}", "coder")
 
     return {
         "description": description,
-        "output":      final,
+        "output":      output,
         "saved_files": saved,
         "ralph":       ralph,
         "timestamp":   datetime.now().isoformat(),

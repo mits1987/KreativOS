@@ -26,7 +26,7 @@ PIPELINE_TEMPLATES = {
     ],
 }
 
-async def run_pipeline(task: str, template: str, model: str, call_ollama_fn, agent_systems: dict, get_skills_fn, ralph_fn, workspace_dir, track_fn, extract_fn):
+async def run_pipeline(task: str, template: str, model: str, call_ollama_fn, agent_systems: dict, get_skills_fn, ralph_fn, workspace_dir, track_fn, extract_fn, skip_ralph: bool = False):
     """Async generator — yields SSE-ready event dicts for each pipeline phase."""
     steps   = PIPELINE_TEMPLATES.get(template, PIPELINE_TEMPLATES["full_app"])
     results = []
@@ -52,7 +52,7 @@ async def run_pipeline(task: str, template: str, model: str, call_ollama_fn, age
             output = await call_ollama_fn(model, [{"role": "user", "content": prompt}], full_sys)
 
             ralph_result = None
-            if agent_id in ("coder", "architect", "devops"):
+            if not skip_ralph and agent_id in ("coder", "architect", "devops"):
                 ralph_result = await ralph_fn(model, task, output, agent_id)
                 output = ralph_result["output"]
 
