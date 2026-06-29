@@ -33,9 +33,12 @@ async function fetchWithRetry(url, opts, maxRetries = 3) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const r = await fetch(url, opts)
-      if (!r.ok) throw new Error(`API ${r.status}`)
+      // Return 4xx immediately — callers handle 401/403; retrying won't help
+      if (r.status >= 400 && r.status < 500) return r
+      if (!r.ok) throw new Error(`API ${r.status}`)  // 5xx → retry
       return r
     } catch (err) {
+      if (err.message?.startsWith('API ')) throw err  // HTTP error, no retry
       lastError = err
       if (attempt < maxRetries - 1) {
         // Exponential backoff with jitter: 1s, 2s, 4s ± 200ms
@@ -74,12 +77,13 @@ export const api = {
     handle401(r)
     if (!r.ok) {
       if (r.status === 403) {
-        const body = await r.json().catch(() => ({}))
-        if (body && body.status === 'pending') {
-          throw { code: 'PERMISSION_REQUIRED', ...body }
+        const errBody = await r.json().catch(() => ({}))
+        if (errBody?.status === 'pending') {
+          throw { code: 'PERMISSION_REQUIRED', ...errBody }
         }
+        throw new Error(`API 403: ${errBody?.detail || 'Forbidden'}`)
       }
-      throw new Error(`API ${r.status}: ${await r.text()}`)
+      throw new Error(`API ${r.status}: ${await r.text().catch(() => '')}`)
     }
     return r.json()
   },
@@ -92,13 +96,14 @@ export const api = {
     handle401(r)
     if (!r.ok) {
       if (r.status === 403) {
-        const body = await r.json().catch(() => ({}))
-        if (body && body.status === 'pending') {
-          throw { code: 'PERMISSION_REQUIRED', ...body }
+        const errBody = await r.json().catch(() => ({}))
+        if (errBody?.status === 'pending') {
+          throw { code: 'PERMISSION_REQUIRED', ...errBody }
         }
       }
       throw new Error(`API ${r.status}`)
     }
+    if (r.status === 204) return {}
     return r.json()
   },
 

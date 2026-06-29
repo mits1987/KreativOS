@@ -68,8 +68,7 @@ class TaskScheduler:
         if interval == "hourly":
             return (now + timedelta(hours=1)).isoformat()
         if interval == "weekly":
-            days_ahead = 7 - now.weekday()
-            return (now + timedelta(days=days_ahead)).replace(
+            return (now + timedelta(days=7)).replace(
                 hour=hour, minute=0, second=0, microsecond=0
             ).isoformat()
         # daily

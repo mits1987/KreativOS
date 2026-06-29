@@ -222,7 +222,7 @@ def _parse_filename_hint(line: str) -> str | None:
         parts = line.split(":", 1)
         if len(parts) == 2:
             name = parts[1].strip().lstrip("/")
-            if name and "/" in name or "." in name:
+            if name and ("/" in name or "." in name):
                 return name
     return None
 
@@ -237,7 +237,10 @@ def extract_and_save_files(text: str, project: str = "") -> list[str]:
         elif line.startswith("```") and in_block:
             in_block = False
             if filename and block_lines:
-                fp = WORKSPACE_DIR / filename
+                fp = (WORKSPACE_DIR / filename).resolve()
+                if not str(fp).startswith(str(WORKSPACE_DIR.resolve())):
+                    block_lines, filename = [], None
+                    continue
                 fp.parent.mkdir(parents=True, exist_ok=True)
                 fp.write_text("\n".join(block_lines))
                 saved.append(str(filename))
@@ -534,7 +537,8 @@ async def list_agents():
     }
 
 @app.post("/api/auth/login")
-async def login(req: LoginRequest):
+@limiter.limit("10/minute")
+async def login(request: Request, req: LoginRequest):
     token = auth.login(req.username, req.password)
     if not token:
         raise HTTPException(401, "Invalid credentials")
@@ -554,7 +558,7 @@ async def dashboard(current_user: dict = Depends(get_current_user)):
             p in str(f) for p in [".memory", ".auth", ".scheduler", ".workflows", ".backups", ".skill_eval", ".audit"]
         )
     ]
-    uptime = (datetime.now() - datetime.fromisoformat(START_TIME)).seconds
+    uptime = int((datetime.now() - datetime.fromisoformat(START_TIME)).total_seconds())
     return {
         "stats": {
             **{k: v for k, v in stats.items() if k != "recent_activity"},
@@ -681,7 +685,9 @@ async def delete_file(
 
 # ── Code Execution  [P0-2: sandboxed] ─────────────────────────────────────────
 @app.post("/api/execute")
+@limiter.limit("20/minute")
 async def execute_code(
+    request: Request,
     req: ExecuteRequest,
     current_user: dict = Depends(get_current_user),
 ):
@@ -692,7 +698,7 @@ async def execute_code(
         result = perms.request_access(external_paths[0], "execute")
         if result and result.get("status") != "allowed":
             raise HTTPException(403, detail=result)
-    result = run_code_sandboxed(req.code, req.language, workspace_dir=str(WORKSPACE_DIR))
+    result = await asyncio.to_thread(run_code_sandboxed, req.code, req.language, workspace_dir=str(WORKSPACE_DIR))
     return result
 
 
@@ -874,7 +880,9 @@ async def web_search(
 
 # ── App Builder ────────────────────────────────────────────────────────────────
 @app.post("/api/appbuilder/generate")
+@limiter.limit("5/minute")
 async def generate_app(
+    request: Request,
     body: dict,
     current_user: dict = Depends(get_current_user),
 ):
@@ -925,7 +933,9 @@ async def preview_file(
     filename: str,
     current_user: dict = Depends(get_current_user),
 ):
-    fp = WORKSPACE_DIR / filename
+    fp = (WORKSPACE_DIR / filename).resolve()
+    if not str(fp).startswith(str(WORKSPACE_DIR.resolve())):
+        raise HTTPException(400, "Invalid path")
     if not fp.exists():
         raise HTTPException(404, "File not found")
     return {"filename": filename, "content": fp.read_text(), "extension": fp.suffix}
@@ -1059,7 +1069,9 @@ async def run_workflow(
 
 # ── Code Review ────────────────────────────────────────────────────────────────
 @app.post("/api/review")
+@limiter.limit("20/minute")
 async def review_code(
+    request: Request,
     req: CodeReviewRequest,
     current_user: dict = Depends(get_current_user),
 ):
@@ -1174,8 +1186,12 @@ async def grade_output(
         "You are a grader. Respond only in the JSON format specified.",
     )
     try:
-        data  = json.loads(raw.strip().strip("```json").strip("```").strip())
-        score = int(data.get("score", 5))
+        raw_clean = raw.strip()
+        if raw_clean.startswith("```"):
+            raw_clean = raw_clean[raw_clean.index("\n")+1:] if "\n" in raw_clean else raw_clean[3:]
+            raw_clean = raw_clean.rstrip("`").strip()
+        data  = json.loads(raw_clean)
+        score = max(0, min(10, int(data.get("score", 5))))
         fb    = data.get("feedback", "")
     except Exception:
         score, fb = 5, raw[:200]
@@ -1315,7 +1331,9 @@ async def download_office_file(
     filename: str,
     current_user: dict = Depends(get_current_user),
 ):
-    fp = WORKSPACE_DIR / filename
+    fp = (WORKSPACE_DIR / filename).resolve()
+    if not str(fp).startswith(str(WORKSPACE_DIR.resolve())):
+        raise HTTPException(400, "Invalid path")
     if not fp.exists():
         raise HTTPException(404, "File not found")
     media_types = {
@@ -1407,7 +1425,13 @@ async def pwa_manifest():
 
 # ── WebSocket ──────────────────────────────────────────────────────────────────
 @app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str):
+async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str = ""):
+    # Auth check before accepting — websocket middleware doesn't run on WS upgrades
+    if AUTH_REQUIRED:
+        token = websocket.query_params.get("token", "")
+        if not token or not auth.verify(token):
+            await websocket.close(code=4001)
+            return
     await websocket.accept()
     try:
         while True:
@@ -1434,7 +1458,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 app.include_router(hub_router)
 
 @app.post("/api/hub/pull")
+@limiter.limit("5/minute")
 async def pull_model(
+    request: Request,
     body: dict,
     current_user: dict = Depends(get_current_user),
 ):

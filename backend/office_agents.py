@@ -146,14 +146,14 @@ def generate_docx(title: str, content: str, output_path: Path) -> Path:
         line = line.strip()
         if not line:
             doc.add_paragraph()
-        elif line.startswith('# '):
-            h2 = doc.add_heading(line[2:], 1)
-            if h2.runs: h2.runs[0].font.color.rgb = DocRGB(0x8B, 0x5C, 0xF6)
+        elif line.startswith('### '):
+            h4 = doc.add_heading(line[4:], 3)
         elif line.startswith('## '):
             h3 = doc.add_heading(line[3:], 2)
             if h3.runs: h3.runs[0].font.color.rgb = DocRGB(0x6B, 0x7B, 0x8D)
-        elif line.startswith('### '):
-            h4 = doc.add_heading(line[4:], 3)
+        elif line.startswith('# '):
+            h2 = doc.add_heading(line[2:], 1)
+            if h2.runs: h2.runs[0].font.color.rgb = DocRGB(0x8B, 0x5C, 0xF6)
         elif line.startswith('- ') or line.startswith('* ') or line.startswith('• '):
             p = doc.add_paragraph(style='List Bullet')
             p.add_run(line.lstrip('-*• ').strip()).font.size = DocPt(11)

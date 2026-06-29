@@ -129,7 +129,7 @@ export default function App() {
     poll()
     const interval = setInterval(poll, 5000)
     return () => clearInterval(interval)
-  }, [isAuthenticated, permissionDialog])
+  }, [isAuthenticated])
 
   const handleUpdate = () => {
     // Tell the waiting service worker to take control

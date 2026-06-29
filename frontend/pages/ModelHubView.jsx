@@ -172,6 +172,7 @@ export default function ModelHubView() {
         },
         body: JSON.stringify({ model_name: ollamaName, hf_model_id: model.id }),
       })
+      if (!resp.ok) { notify(`Download failed: ${resp.status}`, 'error'); return }
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
       let buf = ''

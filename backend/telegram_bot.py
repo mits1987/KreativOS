@@ -16,7 +16,7 @@ from .config import AGENT_SYSTEMS, INTERNAL_AGENTS
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN", "")
-ALLOWED_IDS = set(os.getenv("TELEGRAM_CHAT_ID", "").split(","))  # comma-separated chat IDs
+ALLOWED_IDS = set(filter(None, os.getenv("TELEGRAM_CHAT_ID", "").split(",")))  # empty env → no filter
 
 class TelegramBot:
     def __init__(self):
@@ -95,7 +95,8 @@ class TelegramBot:
                 if self._chat_cb:
                     try:
                         result = ""
-                        async for chunk in self._chat_cb([{"role":"user","content":msg}], model, agent):
+                        sys_prompt = AGENT_SYSTEMS.get(agent, AGENT_SYSTEMS["general"])
+                        async for chunk in self._chat_cb(model, [{"role":"user","content":msg}], sys_prompt):
                             result += chunk
                         text = result[:3800] + "\n…" if len(result) > 3800 else result
                         await update.message.reply_text(text)

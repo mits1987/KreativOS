@@ -2,7 +2,7 @@
 KreativOS — Backup & Restore (from agentic-os inspiration)
 One-click tar.gz backup of the entire workspace.
 """
-import tarfile, json, shutil
+import os, tarfile, json, shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -70,5 +70,11 @@ def restore_backup(filename: str, workspace_dir: Path) -> bool:
         else:              item.unlink()
     # Extract
     with tarfile.open(str(p), "r:gz") as tar:
-        tar.extractall(str(workspace_dir.parent))
+        # filter="data" blocks absolute paths and ../traversal (Python 3.12+; safe fallback below)
+        try:
+            tar.extractall(str(workspace_dir.parent), filter="data")
+        except TypeError:
+            safe = [m for m in tar.getmembers()
+                    if not os.path.isabs(m.name) and ".." not in m.name.split("/")]
+            tar.extractall(str(workspace_dir.parent), members=safe)
     return True

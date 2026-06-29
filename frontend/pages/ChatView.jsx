@@ -82,6 +82,18 @@ export default function ChatView() {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
   useEffect(() => { if (!activeConvId) createConversation() }, [])
 
+  // Abort stream on unmount
+  useEffect(() => () => { abortRef.current = true }, [])
+
+  // Pick up prompts sent from PromptsView via CustomEvent or localStorage
+  useEffect(() => {
+    const handler = (e) => setInput(e.detail)
+    window.addEventListener('use_prompt', handler)
+    const pending = localStorage.getItem('pending_prompt')
+    if (pending) { setInput(pending); localStorage.removeItem('pending_prompt') }
+    return () => window.removeEventListener('use_prompt', handler)
+  }, [])
+
   // Thinking-time counter: shows "Model is thinking… Xs" when no chunk for >5s
   useEffect(() => {
     if (isStreaming) {
