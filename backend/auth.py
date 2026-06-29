@@ -128,11 +128,18 @@ class AuthManager:
 
 # ── Module-level singleton (set by main.py after init) ────────────────────────
 _auth_manager: Optional[AuthManager] = None
+# Auth requirement flag (set by main.py)
+AUTH_REQUIRED: bool = True
 
 
 def set_auth_manager(manager: AuthManager):
     global _auth_manager
     _auth_manager = manager
+
+
+def set_auth_required(required: bool):
+    global AUTH_REQUIRED
+    AUTH_REQUIRED = required
 
 
 # ── FastAPI dependency ─────────────────────────────────────────────────────────
@@ -146,10 +153,13 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     - Inject with: current_user = Depends(get_current_user)
 
     For AUTH_REQUIRED=false (single-user mode):
-    - Do NOT mount the auth middleware.
-    - Protected routes still require a valid token if auth is enabled.
-    - For single-user setups, login once and store the token in the frontend.
+    - Returns a default admin user without checking token.
+    - Protected routes work without authentication.
     """
+    # If auth is disabled globally, return a default user
+    if not AUTH_REQUIRED:
+        return {"user": "admin", "role": "admin"}
+
     if _auth_manager is None:
         # Auth not initialised yet (startup race) — deny by default
         raise HTTPException(status_code=503, detail="Auth service not ready")

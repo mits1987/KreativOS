@@ -29,10 +29,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -41,7 +45,7 @@ from starlette.requests import Request
 
 # ── Internal imports ───────────────────────────────────────────────────────────
 from .audit        import AuditLog
-from .auth         import AuthManager, get_current_user, set_auth_manager
+from .auth         import AuthManager, get_current_user, set_auth_manager, set_auth_required
 from .backup       import init as backup_init
 from . import backup as backup_mod
 from .config       import (
@@ -79,6 +83,7 @@ app.add_middleware(
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 WORKSPACE_DIR   = get_workspace_dir()  # [P1-7] No longer /tmp
 AUTH_REQUIRED   = os.getenv("AUTH_REQUIRED", "false").lower() == "true"
+set_auth_required(AUTH_REQUIRED)  # sync flag to auth.py for get_current_user()
 
 # ── Services ───────────────────────────────────────────────────────────────────
 memory     = ProjectMemory(WORKSPACE_DIR)
@@ -423,7 +428,7 @@ async def auth_middleware(request: Request, call_next):
 # ══════════════════════════════════════════════════════════════════════════════
 @app.get("/")
 async def root():
-    return {"status": "KreativOS", "version": "1.1.0"}
+    return FileResponse(FRONTEND_DIST / "index.html")
 
 @app.get("/api/health")
 async def health():
@@ -1365,9 +1370,30 @@ async def transcribe_audio(current_user: dict = Depends(get_current_user)):
     return {"transcript": "", "error": "Vosk not configured — set VOSK_MODEL_PATH env var"}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ── Static frontend (built) — SPA fallback LAST so API routes take priority ───────
+FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+if FRONTEND_DIST.exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
+    # Icons served from dist root (icon-192.png, icon-512.png, etc.)
+    app.mount("/icons", StaticFiles(directory=FRONTEND_DIST), name="icons")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve frontend index.html for all non-API routes (SPA fallback)."""
+        # Skip API routes
+        if full_path.startswith("api/"):
+            raise HTTPException(404, "Not found")
+        # Serve static files if they exist (e.g., favicon.ico, manifest.json)
+        static_file = FRONTEND_DIST / full_path
+        if static_file.exists() and static_file.is_file():
+            return FileResponse(static_file)
+        # Fallback to index.html for SPA routing
+        return FileResponse(FRONTEND_DIST / "index.html")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  STARTUP / SHUTDOWN
-# ══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
 @app.on_event("startup")
 async def startup():
     # Background: scheduler loop
