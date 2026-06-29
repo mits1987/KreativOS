@@ -191,10 +191,10 @@ export default function TasksView() {
                 </div>
               </div>
               <button onClick={() => setUseRalph(!useRalph)}
-                className={clsx('relative w-10 h-5 rounded-full transition-colors',
-                  useRalph ? 'bg-accent-purple' : 'bg-surface-4')}>
-                <span className={clsx('absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform',
-                  useRalph ? 'translate-x-5' : 'translate-x-0.5')} />
+                className={clsx('relative w-10 h-5 rounded-full transition-colors cursor-pointer',
+                  useRalph ? 'bg-accent-purple' : 'bg-white/15')}>
+                <span className={clsx('absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform',
+                  useRalph ? 'translate-x-5' : 'translate-x-0')} />
               </button>
             </div>
           )}

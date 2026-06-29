@@ -34,9 +34,12 @@ def _get_url(name: str) -> str:
 
 
 async def _rpc(url: str, method: str, params: dict) -> dict:
-    async with httpx.AsyncClient(timeout=15) as c:
-        r = await c.post(url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
-        r.raise_for_status()
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+            r.raise_for_status()
+    except (httpx.ConnectError, httpx.TimeoutException) as e:
+        raise ConnectionError(f"MCP server unreachable: {e}") from e
     data = r.json()
     if "error" in data:
         raise RuntimeError(data["error"].get("message", "MCP error"))

@@ -318,3 +318,65 @@ def get_skills_for_agent(agent_id: str) -> str:
     """Return concatenated skill text for the given agent."""
     keys = AGENT_SKILL_MAP.get(agent_id, [])
     return "\n".join(SKILLS[k] for k in keys if k in SKILLS)
+
+
+# ── Dynamic skill loading from local opencode config ──────────────────────────
+import os
+import re
+from pathlib import Path
+
+OPENCODE_SKILLS_DIR = Path(os.environ.get(
+    "OPENCODE_SKILLS_DIR",
+    Path.home() / ".config" / "opencode" / "skills"
+))
+
+def _load_opencode_skills() -> dict[str, dict]:
+    """Load all SKILL.md files from local opencode config."""
+    skills = {}
+    if not OPENCODE_SKILLS_DIR.exists():
+        return skills
+    for skill_dir in OPENCODE_SKILLS_DIR.iterdir():
+        if not skill_dir.is_dir():
+            continue
+        skill_file = skill_dir / "SKILL.md"
+        if not skill_file.exists():
+            continue
+        try:
+            content = skill_file.read_text(encoding="utf-8")
+            # Parse YAML frontmatter
+            match = re.match(r'^---\n(.*?)\n---\n(.*)', content, re.S)
+            if match:
+                meta_str, body = match.groups()
+                meta = {}
+                for line in meta_str.strip().splitlines():
+                    if ':' in line:
+                        k, v = line.split(':', 1)
+                        meta[k.strip()] = v.strip()
+                skills[skill_dir.name] = {
+                    "name": meta.get("name", skill_dir.name),
+                    "description": meta.get("description", ""),
+                    "content": body.strip(),
+                    "source": "opencode",
+                }
+            else:
+                # No frontmatter, use first line as description
+                first_line = content.splitlines()[0] if content else ""
+                skills[skill_dir.name] = {
+                    "name": skill_dir.name,
+                    "description": first_line[:200],
+                    "content": content.strip(),
+                    "source": "opencode",
+                }
+        except Exception:
+            continue
+    return skills
+
+# Cache loaded skills
+_LOCAL_SKILLS = None
+
+def get_local_skills() -> dict[str, dict]:
+    """Get all local opencode skills (cached)."""
+    global _LOCAL_SKILLS
+    if _LOCAL_SKILLS is None:
+        _LOCAL_SKILLS = _load_opencode_skills()
+    return _LOCAL_SKILLS

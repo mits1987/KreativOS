@@ -1183,16 +1183,19 @@ async def skill_leaderboard(current_user: dict = Depends(get_current_user)):
 
 @app.get("/api/skills/catalog")
 async def skills_catalog(current_user: dict = Depends(get_current_user)):
-    from .config import OPENCODE_SKILLS, SKILLS
+    from .config import get_local_skills, SKILLS
     catalog = []
-    for k, v in OPENCODE_SKILLS.items():
+    # Load from local opencode config (130+ skills)
+    local_skills = get_local_skills()
+    for k, v in local_skills.items():
         catalog.append({
             "id": k,
-            "name": k.replace("-", " ").title(),
-            "description": v["description"],
+            "name": v.get("name", k).replace("-", " ").title(),
+            "description": v.get("description", ""),
             "source": "opencode",
-            "preview": v["content"][:300],
+            "preview": v.get("content", "")[:300],
         })
+    # Built-in skills
     for k in SKILLS:
         catalog.append({
             "id": k,
@@ -1269,14 +1272,20 @@ async def mcp_tools(name: str, current_user: dict = Depends(get_current_user)):
     server = next((s for s in load_servers() if s["name"] == name), None)
     if not server:
         raise HTTPException(404, "Server not found")
-    tools = await list_tools(server["url"])
-    return {"tools": tools}
+    try:
+        tools = await list_tools(server["url"])
+        return {"tools": tools}
+    except ConnectionError as e:
+        return {"tools": [], "error": str(e)}
 
 @app.post("/api/mcp/call")
 async def mcp_call(req: McpCallRequest, current_user: dict = Depends(get_current_user)):
     from .mcp_client import call_tool
-    result = await call_tool(req.server, req.tool, req.args)
-    return {"result": result}
+    try:
+        result = await call_tool(req.server, req.tool, req.args)
+        return {"result": result}
+    except ConnectionError as e:
+        return {"result": None, "error": str(e)}
 
 # ── Auth management ────────────────────────────────────────────────────────────
 @app.get("/api/auth/users")
@@ -1621,7 +1630,12 @@ if FRONTEND_DIST.exists():
         # Serve static files if they exist (e.g., favicon.ico, manifest.json)
         static_file = FRONTEND_DIST / full_path
         if static_file.exists() and static_file.is_file():
-            return FileResponse(static_file)
+            media_type = None
+            if full_path.endswith(".json") or full_path.endswith(".webmanifest"):
+                media_type = "application/manifest+json"
+            elif full_path.endswith(".svg"):
+                media_type = "image/svg+xml"
+            return FileResponse(static_file, media_type=media_type)
         # Fallback to index.html for SPA routing
         return FileResponse(FRONTEND_DIST / "index.html")
 

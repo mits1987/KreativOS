@@ -1,9 +1,9 @@
 import React, { useState } from 'react'
 import {
   MessageSquare, FolderOpen, Settings, ChevronLeft, Plus, Trash2,
-  Zap, LayoutDashboard, Search, Package, GitBranch, Workflow,
-  Blocks, Database, Clock, Users, Terminal, Shield, HardDrive,
-  BookOpen, Star, Bot, Sparkles, LogOut, ChevronRight, Network,
+  Sparkles, Zap, LayoutDashboard, Search, Package, GitBranch, Workflow,
+  Blocks, Database, Clock, Shield,
+  BookOpen, Star, LogOut, Network,
 } from 'lucide-react'
 import useStore from '../store'
 import clsx from 'clsx'
@@ -12,9 +12,9 @@ import BrainMark from './BrainMark'
 // ── Nav structure — 4 purposeful groups ───────────────────────────────────────
 const NAV = [
   // Core — unlabeled, always prominent
+  { id:'dashboard',  icon:LayoutDashboard, label:'Dashboard',    group:'core'   },
   { id:'chat',       icon:MessageSquare,   label:'Chat',         group:'core'   },
   { id:'tasks',      icon:Zap,             label:'Tasks',        group:'core'   },
-  { id:'dashboard',  icon:LayoutDashboard, label:'Dashboard',    group:'core'   },
   { id:'prompts',    icon:BookOpen,        label:'Prompts',      group:'core'   },
   // Create
   { id:'appbuilder', icon:Blocks,          label:'App Builder',  group:'create' },
@@ -24,15 +24,11 @@ const NAV = [
   // Workspace
   { id:'files',      icon:FolderOpen,      label:'Files',        group:'data'   },
   { id:'memory',     icon:Database,        label:'Memory',       group:'data'   },
-  { id:'skills',     icon:Star,            label:'Skills',       group:'data'   },
   { id:'hub',        icon:Package,         label:'Model Hub',    group:'data'   },
   { id:'mcp',        icon:Network,         label:'MCP Servers',  group:'data'   },
   // System
   { id:'scheduler',  icon:Clock,           label:'Scheduler',    group:'system' },
-  { id:'telegram',   icon:Bot,             label:'Telegram Bot', group:'system' },
   { id:'audit',      icon:Shield,          label:'Audit Log',    group:'system' },
-  { id:'backup',     icon:HardDrive,       label:'Backup',       group:'system' },
-  { id:'users',      icon:Users,           label:'Users',        group:'system' },
   { id:'settings',   icon:Settings,        label:'Settings',     group:'system' },
 ]
 
