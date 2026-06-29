@@ -68,9 +68,13 @@ export default function ChatView() {
   } = useStore()
 
   const [input,        setInput]        = useState('')
-  const [streamError,  setStreamError]  = useState(null) // [Fix] connection lost indicator
-  const [thinkingTime, setThinkingTime] = useState(0)    // seconds since last chunk
+  const [streamError,  setStreamError]  = useState(null)
+  const [thinkingTime, setThinkingTime] = useState(0)
+  const [inputHistory, setInputHistory] = useState([])   // sent messages, newest first
+  const [historyIdx,   setHistoryIdx]   = useState(-1)   // -1 = current draft
   const messagesEndRef  = useRef(null)
+  const scrollContainerRef = useRef(null)
+  const userScrolledRef    = useRef(false)  // true when user has scrolled up
   const textareaRef     = useRef(null)
   const abortRef        = useRef(false)
   const lastChunkRef    = useRef(null)
@@ -79,7 +83,24 @@ export default function ChatView() {
   const conv     = conversations.find(c => c.id === activeConvId)
   const messages = conv?.messages || []
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  // Only auto-scroll when user hasn't manually scrolled up
+  useEffect(() => {
+    if (!userScrolledRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages])
+
+  // Re-enable auto-scroll when streaming ends
+  useEffect(() => {
+    if (!isStreaming) userScrolledRef.current = false
+  }, [isStreaming])
+
+  const handleScroll = () => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    userScrolledRef.current = !atBottom
+  }
   useEffect(() => { if (!activeConvId) createConversation() }, [])
 
   // Abort stream on unmount
@@ -117,6 +138,8 @@ export default function ChatView() {
     if (!convId) convId = createConversation()
 
     addMessage(convId, { role: 'user', content })
+    setInputHistory(prev => [content, ...prev.filter(h => h !== content)].slice(0, 50))
+    setHistoryIdx(-1)
     setInput('')
     setStreamError(null)
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
@@ -155,7 +178,10 @@ export default function ChatView() {
               `${k}=${JSON.stringify(v).slice(0,30)}`).join(', ')
             tick(`\`  → ${event.tool}(${argStr})\`\n`)
           }
-          else if (event.type === 'agent_done')   tick('✓ Done\n\n')
+          else if (event.type === 'agent_done') {
+            const s = event.score != null ? ` (self-score: ${event.score}/10)` : ''
+            tick(`✓ Done${s}\n\n`)
+          }
           else if (event.type === 'audit_start')  tick('🔍 **Auditor reviewing…**\n')
           else if (event.type === 'audit_result') {
             const mark = event.passed ? '✅' : '⚠️'
@@ -183,7 +209,19 @@ export default function ChatView() {
   }, [input, isStreaming, selectedModel, selectedAgent, activeConvId, conversations])
 
   const handleKey = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); return }
+    if (e.key === 'ArrowUp' && !input.trim()) {
+      e.preventDefault()
+      const idx = Math.min(historyIdx + 1, inputHistory.length - 1)
+      setHistoryIdx(idx)
+      if (inputHistory[idx] !== undefined) setInput(inputHistory[idx])
+    }
+    if (e.key === 'ArrowDown' && historyIdx >= 0) {
+      e.preventDefault()
+      const idx = historyIdx - 1
+      setHistoryIdx(idx)
+      setInput(idx < 0 ? '' : (inputHistory[idx] || ''))
+    }
   }
 
   const quickPrompts = [
@@ -195,7 +233,7 @@ export default function ChatView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto px-4 py-6">
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-6">
         {messages.length === 0 && (
           <div className="max-w-2xl mx-auto text-center mt-12">
             <div className="text-5xl mb-4">🧠</div>
