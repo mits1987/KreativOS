@@ -21,7 +21,7 @@ ALLOWED_IDS = set(os.getenv("TELEGRAM_CHAT_ID", "").split(","))  # comma-separat
 class TelegramBot:
     def __init__(self):
         self.token   = BOT_TOKEN
-        self.enabled = bool(self.token)
+        self.enabled = bool(self.token) and not self.token.startswith("your_")
         self._app    = None
         self._task_cb: Optional[Callable] = None   # async fn(task, model, agent) -> str
         self._chat_cb: Optional[Callable] = None   # async fn(msg, model, agent) -> AsyncGenerator
