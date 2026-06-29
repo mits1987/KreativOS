@@ -52,6 +52,15 @@ export const api = {
   async get(path) {
     const r = await fetchWithRetry(`${getBase()}${path}`, { headers: getHeaders() })
     handle401(r)
+    if (!r.ok) {
+      if (r.status === 403) {
+        const body = await r.json().catch(() => ({}))
+        if (body && body.status === 'pending') {
+          throw { code: 'PERMISSION_REQUIRED', ...body }
+        }
+      }
+      throw new Error(`API ${r.status}`)
+    }
     return r.json()
   },
 
@@ -63,7 +72,15 @@ export const api = {
       body:    JSON.stringify(body),
     })
     handle401(r)
-    if (!r.ok) throw new Error(`API ${r.status}: ${await r.text()}`)
+    if (!r.ok) {
+      if (r.status === 403) {
+        const body = await r.json().catch(() => ({}))
+        if (body && body.status === 'pending') {
+          throw { code: 'PERMISSION_REQUIRED', ...body }
+        }
+      }
+      throw new Error(`API ${r.status}: ${await r.text()}`)
+    }
     return r.json()
   },
 
@@ -73,7 +90,15 @@ export const api = {
       headers: getHeaders(),
     })
     handle401(r)
-    if (!r.ok) throw new Error(`API ${r.status}`)
+    if (!r.ok) {
+      if (r.status === 403) {
+        const body = await r.json().catch(() => ({}))
+        if (body && body.status === 'pending') {
+          throw { code: 'PERMISSION_REQUIRED', ...body }
+        }
+      }
+      throw new Error(`API ${r.status}`)
+    }
     return r.json()
   },
 
@@ -221,6 +246,12 @@ export const api = {
   // Office
   generateOffice:    (prompt, model, format, title = '', project = '') =>
     api.post('/api/office/generate', { prompt, model, format, title, project }),
+
+  // Permissions
+  pendingPermissions: () => api.get('/api/permissions/pending'),
+  respondPermission: (req_id, decision) =>
+    api.post('/api/permissions/respond', { req_id, decision }),
+  workspace: () => api.get('/api/permissions/workspace'),
 }
 
 export default api

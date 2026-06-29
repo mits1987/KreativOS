@@ -185,7 +185,7 @@ def run_sandboxed(
         }
 
 
-def run_code_sandboxed(code: str, language: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
+def run_code_sandboxed(code: str, language: str, timeout: int = DEFAULT_TIMEOUT, workspace_dir: Optional[str] = None) -> dict:
     """Write code to a temp file and execute it sandboxed."""
     language = language.lower()
     cmd = LANG_COMMANDS.get(language)
@@ -198,6 +198,18 @@ def run_code_sandboxed(code: str, language: str, timeout: int = DEFAULT_TIMEOUT)
             "success": False,
             "returncode": -1,
         }
+
+    if workspace_dir:
+        from . import permissions as perms
+        ext_paths = perms.check_code_paths(code, Path(workspace_dir))
+        if ext_paths:
+            return {
+                "stdout": "", "stderr": "",
+                "success": False, "returncode": -1,
+                "error": f"File permission required for: {ext_paths[0]}",
+                "permission_required": True,
+                "paths": ext_paths,
+            }
 
     with tempfile.TemporaryDirectory(prefix="kreavitos_exec_") as tmpdir:
         code_file = os.path.join(tmpdir, f"code{ext}")

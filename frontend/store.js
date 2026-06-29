@@ -177,6 +177,12 @@ const useStore = create((set, get) => ({
   // ── Ollama status ──────────────────────────────────────────────────────────
   ollamaStatus:    'unknown',
   setOllamaStatus: (s) => set({ ollamaStatus: s }),
+
+  // ── Permissions ──────────────────────────────────────────────────────────
+  pendingPermissions: [],
+  setPendingPermissions: (pp) => set({ pendingPermissions: pp }),
+  permissionDialog: null,  // {req_id, path, operation} or null
+  setPermissionDialog: (p) => set({ permissionDialog: p }),
 }))
 
 export default useStore

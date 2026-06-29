@@ -23,6 +23,7 @@ import UsersView      from './pages/UsersView'
 import SettingsView   from './pages/SettingsView'
 import useStore from './store'
 import api from './utils/api'
+import PermissionDialog from './components/PermissionDialog'
 import {
   setupInstallPrompt, triggerInstall, isPWAInstalled,
   setupUpdatePrompt,
@@ -57,6 +58,8 @@ export default function App() {
     activeView, setModels, setAgents, setOllamaStatus,
     selectedModel, setSelectedModel, conversations, createConversation,
     isAuthenticated, logout,
+    pendingPermissions, setPendingPermissions,
+    permissionDialog, setPermissionDialog,
   } = useStore()
 
   const [installReady, setInstallReady] = useState(false)
@@ -110,6 +113,23 @@ export default function App() {
     const v = new URLSearchParams(window.location.search).get('view')
     if (v) useStore.getState().setActiveView(v)
   }, [])
+
+  // ── Poll for pending permissions ─────────────────────────────────────────
+  useEffect(() => {
+    if (!isAuthenticated) return
+    const poll = async () => {
+      try {
+        const data = await api.pendingPermissions()
+        setPendingPermissions(data.pending || [])
+        if (data.pending?.length > 0 && !permissionDialog) {
+          setPermissionDialog(data.pending[0])
+        }
+      } catch { /* poll errors are expected when no permissions pending */ }
+    }
+    poll()
+    const interval = setInterval(poll, 2000)
+    return () => clearInterval(interval)
+  }, [isAuthenticated, permissionDialog])
 
   const handleUpdate = () => {
     // Tell the waiting service worker to take control
@@ -217,6 +237,7 @@ export default function App() {
           )}
         </main>
       </div>
+      {permissionDialog && <PermissionDialog />}
     </ErrorBoundary>
   )
 }

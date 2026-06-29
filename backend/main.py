@@ -58,6 +58,7 @@ from .office_agents import (
     generate_docx, generate_pptx, generate_xlsx,
     parse_ai_to_slides, parse_ai_to_table,
 )
+from . import permissions as perms
 from .paths        import get_workspace_dir
 from .pipeline     import PIPELINE_TEMPLATES, run_pipeline
 from .sandbox      import run_code_sandboxed
@@ -84,6 +85,7 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 WORKSPACE_DIR   = get_workspace_dir()  # [P1-7] No longer /tmp
 AUTH_REQUIRED   = os.getenv("AUTH_REQUIRED", "false").lower() == "true"
 set_auth_required(AUTH_REQUIRED)  # sync flag to auth.py for get_current_user()
+perms.init(WORKSPACE_DIR)
 
 # ── Services ───────────────────────────────────────────────────────────────────
 memory     = ProjectMemory(WORKSPACE_DIR)
@@ -545,6 +547,38 @@ async def dashboard_v2(current_user: dict = Depends(get_current_user)):
     return await dashboard(current_user)
 
 
+# ── Permission routes ────────────────────────────────────────────────
+@app.get("/api/permissions/pending")
+async def pending_permissions(current_user: dict = Depends(get_current_user)):
+    return {"pending": perms.pending_list()}
+
+class PermissionRespondRequest(BaseModel):
+    req_id: str
+    decision: str
+
+@app.post("/api/permissions/respond")
+async def respond_permission(req: PermissionRespondRequest, current_user: dict = Depends(get_current_user)):
+    if req.decision not in ("allow_once", "allow_session", "deny"):
+        raise HTTPException(400, "Invalid decision")
+    ok = perms.respond(req.req_id, req.decision)
+    if not ok:
+        raise HTTPException(404, "Permission request not found")
+    return {"success": True}
+
+@app.get("/api/permissions/workspace")
+async def get_workspace(current_user: dict = Depends(get_current_user)):
+    return {"workspace": str(WORKSPACE_DIR)}
+
+# ── Permission helper for file routes ────────────────────────────────
+def _check_file_permission(path, operation):
+    fp = Path(path).expanduser().resolve()
+    if perms.is_allowed(str(fp)):
+        return None
+    result = perms.request_access(str(fp), operation)
+    if result is None or result.get("status") == "denied":
+        return result
+    return result
+
 # ── Files [P0-4: paginated] ────────────────────────────────────────────────────
 @app.get("/api/files/list")
 async def list_files(
@@ -579,11 +613,15 @@ async def write_file(
     req: FileWriteRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    fp = WORKSPACE_DIR / req.filename
+    raw = req.filename
+    fp = Path(WORKSPACE_DIR / raw).expanduser().resolve()
+    perm = _check_file_permission(str(fp), "write")
+    if perm:
+        raise HTTPException(403, detail=perm)
     fp.parent.mkdir(parents=True, exist_ok=True)
     fp.write_text(req.content)
     stats["files_created"] += 1
-    track("file_saved", req.filename)
+    track("file_saved", raw)
     return {"success": True, "path": str(fp)}
 
 @app.get("/api/files/read/{filename:path}")
@@ -591,17 +629,25 @@ async def read_file(
     filename: str,
     current_user: dict = Depends(get_current_user),
 ):
-    fp = WORKSPACE_DIR / filename
+    raw = filename
+    fp = Path(WORKSPACE_DIR / raw).expanduser().resolve()
+    perm = _check_file_permission(str(fp), "read")
+    if perm:
+        raise HTTPException(403, detail=perm)
     if not fp.exists():
         raise HTTPException(404, "Not found")
-    return {"filename": filename, "content": fp.read_text()}
+    return {"filename": raw, "content": fp.read_text()}
 
 @app.delete("/api/files/delete/{filename:path}")
 async def delete_file(
     filename: str,
     current_user: dict = Depends(get_current_user),
 ):
-    fp = WORKSPACE_DIR / filename
+    raw = filename
+    fp = Path(WORKSPACE_DIR / raw).expanduser().resolve()
+    perm = _check_file_permission(str(fp), "delete")
+    if perm:
+        raise HTTPException(403, detail=perm)
     if fp.exists():
         fp.unlink()
     return {"success": True}
@@ -615,7 +661,12 @@ async def execute_code(
 ):
     stats["code_executions"] += 1
     track("code_exec", req.language)
-    result = run_code_sandboxed(req.code, req.language)
+    external_paths = perms.check_code_paths(req.code, WORKSPACE_DIR)
+    if external_paths:
+        result = perms.request_access(external_paths[0], "execute")
+        if result and result.get("status") != "allowed":
+            raise HTTPException(403, detail=result)
+    result = run_code_sandboxed(req.code, req.language, workspace_dir=str(WORKSPACE_DIR))
     return result
 
 
