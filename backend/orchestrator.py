@@ -1,20 +1,21 @@
 """
-KreativOS — Orchestrator
-Single entry-point agent flow:
-  User → Orchestrator plan → Specialists (tool-calling loop) → Auditor → Revision → Final report
+KreativOS — Orchestrator (ReAct pattern)
+Works with any Ollama model — no native tool-calling support required.
+Agents emit TOOL: / ARGS: lines; we parse, execute, and continue until done.
 """
 import asyncio
 import json
+import re
 import httpx
 from pathlib import Path
 from typing import AsyncGenerator
 
 from .config import AGENT_SYSTEMS
+from . import permissions as perms
 from .sandbox import run_code_sandboxed
 from .web_search import duckduckgo_search
 
 # ── Permission signalling ──────────────────────────────────────────────────────
-# req_id → (asyncio.Event, [decision])  — main.py calls signal_permission() on respond
 _perm_events: dict[str, tuple] = {}
 
 def signal_permission(req_id: str, decision: str):
@@ -24,268 +25,263 @@ def signal_permission(req_id: str, decision: str):
         holder.append(decision)
         event.set()
 
-# ── Tool schema ────────────────────────────────────────────────────────────────
-TOOLS = [
-    {"type": "function", "function": {
-        "name": "list_files",
-        "description": "List files and directories in the workspace",
-        "parameters": {"type": "object", "properties": {
-            "path": {"type": "string", "description": "Relative path in workspace (default '.')"}
-        }}
-    }},
-    {"type": "function", "function": {
-        "name": "read_file",
-        "description": "Read a file from the workspace",
-        "parameters": {"type": "object", "required": ["filename"], "properties": {
-            "filename": {"type": "string"}
-        }}
-    }},
-    {"type": "function", "function": {
-        "name": "write_file",
-        "description": "Write or create a file in the workspace",
-        "parameters": {"type": "object", "required": ["filename", "content"], "properties": {
-            "filename": {"type": "string"},
-            "content": {"type": "string"}
-        }}
-    }},
-    {"type": "function", "function": {
-        "name": "execute_code",
-        "description": "Execute Python or Bash code, returns stdout/stderr",
-        "parameters": {"type": "object", "required": ["code", "language"], "properties": {
-            "code": {"type": "string"},
-            "language": {"type": "string", "enum": ["python", "bash"]}
-        }}
-    }},
-    {"type": "function", "function": {
-        "name": "web_search",
-        "description": "Search the web for current information",
-        "parameters": {"type": "object", "required": ["query"], "properties": {
-            "query": {"type": "string"}
-        }}
-    }},
-    {"type": "function", "function": {
-        "name": "request_permission",
-        "description": "Request user permission before accessing a path outside the workspace",
-        "parameters": {"type": "object", "required": ["path", "operation"], "properties": {
-            "path": {"type": "string"},
-            "operation": {"type": "string", "enum": ["read", "write", "execute"]}
-        }}
-    }},
-]
+# ── Tool docs injected into every agent's system prompt ───────────────────────
+TOOL_INSTRUCTIONS = """
+## Tools
+To use a tool write these two lines EXACTLY (no extra text between them):
+TOOL: tool_name
+ARGS: {"key": "value"}
 
-# ── System prompts ─────────────────────────────────────────────────────────────
+Available tools:
+- list_files   {"path": "."} — list a directory (relative to workspace OR absolute)
+- read_file    {"filename": "path/to/file"} — read file contents (relative or absolute)
+- write_file   {"filename": "relative/path", "content": "text"} — write to workspace
+- execute_code {"code": "...", "language": "python"} — run code, returns stdout/stderr
+- web_search   {"query": "search terms"} — search the web
+- request_permission {"path": "/absolute/path", "operation": "read"} — ask user before accessing paths outside workspace
+
+Rules:
+- For any path outside the workspace, call request_permission FIRST.
+- Use list_files to explore before reading files.
+- You may call multiple tools sequentially — one per response turn.
+- When finished with all tool work, write your final answer normally (no TOOL: line).
+"""
+
 ORCHESTRATOR_SYSTEM = """\
-You are the KreativOS Orchestrator. Analyse the task and produce an execution plan.
+You are the KreativOS Orchestrator. Analyse the task and output a JSON execution plan.
 
-Available agents:
-- researcher: gathers info, analyses requirements, searches the web
-- architect: designs systems, APIs, data models, tech stack decisions
-- coder: writes all code and creates files in the workspace
-- devops: Docker, CI/CD, deployment scripts, infra config
-- general: writing, analysis, creative tasks
+Available agents: researcher, architect, coder, devops, general
+- researcher : web search, information gathering, analysis
+- architect  : system design, tech stack, folder structure
+- coder      : write code, create files, run code
+- devops     : Docker, CI/CD, deployment scripts
+- general    : time, file exploration, writing, any other task
 
-Respond ONLY with valid JSON (no markdown, no explanation):
+Respond ONLY with valid JSON (no markdown fences, no explanation):
 {
-  "plan_summary": "one sentence describing the approach",
+  "plan_summary": "one sentence",
   "steps": [
-    {"agent": "researcher", "task": "specific instructions"},
-    {"agent": "coder", "task": "specific instructions"}
+    {"agent": "general", "task": "specific instructions for this agent"}
   ]
 }
 
-Include only needed agents. Order matters — each agent sees the previous agents' output."""
+For simple tasks (check time, read files, quick questions) use a single general agent.
+Order agents logically — each sees the previous agents' output."""
 
 AUDITOR_SYSTEM = """\
-You are the KreativOS Auditor. Review all agent work against the original task.
-
-Evaluate: correctness, completeness, missing files, logic errors, gaps.
-
+You are the KreativOS Auditor. Review the agent work against the original task.
 Respond ONLY with valid JSON:
 {
   "passed": true,
   "score": 8,
-  "feedback": "specific actionable revision instructions (empty string if passed)",
-  "issues": ["issue description"]
+  "feedback": "revision instructions if not passed, else empty string",
+  "issues": []
 }
-
-Set passed: true when score >= 7."""
+passed = true when score >= 7."""
 
 FINAL_SYSTEM = """\
-You are the KreativOS Orchestrator. Present the final result to the user clearly.
-Summarise: what was built, files created, how to run or use it.
-Be concise and use markdown formatting."""
+You are the KreativOS Orchestrator. Present results to the user.
+Summarise what was done, list any files created, explain how to use/run them.
+Be concise. Use markdown."""
+
+TOOL_RE = re.compile(r'TOOL:\s*(\w+)\s*\nARGS:\s*(\{[^}]*\}|\{[\s\S]*?\})', re.MULTILINE)
 
 
-# ── LLM call ──────────────────────────────────────────────────────────────────
-async def _llm(model: str, messages: list, system: str, ollama_url: str, tools=None) -> dict:
+def _parse_json(raw: str) -> dict:
+    """Parse JSON that may be wrapped in markdown fences or mixed with text."""
+    clean = raw.strip()
+    # Try markdown fence first
+    m = re.search(r'```(?:json)?\s*([\s\S]*?)```', clean)
+    if m:
+        clean = m.group(1).strip()
+    # Try bare JSON object anywhere in the text
+    if not clean.startswith('{'):
+        m = re.search(r'\{[\s\S]*\}', clean)
+        if m:
+            clean = m.group(0)
+    return json.loads(clean)
+
+
+def _resolve(raw: str, workspace_dir: Path) -> tuple[Path, bool]:
+    """Return (resolved_path, is_within_workspace)."""
+    p = Path(raw)
+    resolved = p.resolve() if p.is_absolute() else (workspace_dir / raw).resolve()
+    in_ws = str(resolved).startswith(str(workspace_dir.resolve()))
+    return resolved, in_ws
+
+
+# ── LLM call (non-streaming, text only) ───────────────────────────────────────
+async def _llm(model: str, messages: list, system: str, ollama_url: str) -> str:
     payload = {
-        "model":   model,
+        "model":    model,
         "messages": [{"role": "system", "content": system}] + messages,
-        "stream":  False,
+        "stream":   False,
     }
-    if tools:
-        payload["tools"] = tools
     async with httpx.AsyncClient(timeout=180) as client:
         r = await client.post(f"{ollama_url}/api/chat", json=payload)
         r.raise_for_status()
-    return r.json().get("message", {})
-
-
-def _parse_json_response(raw: str) -> dict:
-    clean = raw.strip()
-    if clean.startswith("```"):
-        clean = clean[clean.index("\n")+1:] if "\n" in clean else clean[3:]
-        clean = clean.rstrip("`").strip()
-    return json.loads(clean)
+    return r.json().get("message", {}).get("content", "")
 
 
 # ── Tool executor ──────────────────────────────────────────────────────────────
 async def _exec_tool(name: str, args: dict, workspace_dir: Path) -> str:
-    ws = str(workspace_dir.resolve())
+    """Execute a parsed tool call. Returns result string."""
     try:
         if name == "list_files":
-            p = (workspace_dir / args.get("path", ".")).resolve()
-            if not str(p).startswith(ws):
-                return "Error: path outside workspace"
-            if not p.exists():
-                return f"Error: '{args.get('path')}' not found"
-            items = sorted(p.iterdir(), key=lambda x: (x.is_file(), x.name))
+            fp, in_ws = _resolve(args.get("path", "."), workspace_dir)
+            if not in_ws and not perms.is_allowed(str(fp)):
+                return f"__NEED_PERMISSION__{fp}__read"
+            if not fp.exists():
+                return f"Error: path not found: {fp}"
+            if fp.is_file():
+                return f"(file, not directory): {fp}"
+            items = sorted(fp.iterdir(), key=lambda x: (x.is_file(), x.name))
             return "\n".join(f"{'FILE' if i.is_file() else 'DIR '} {i.name}" for i in items) or "(empty)"
 
         elif name == "read_file":
-            fp = (workspace_dir / args["filename"]).resolve()
-            if not str(fp).startswith(ws):
-                return "Error: path outside workspace"
+            fp, in_ws = _resolve(args.get("filename", ""), workspace_dir)
+            if not in_ws and not perms.is_allowed(str(fp)):
+                return f"__NEED_PERMISSION__{fp}__read"
             if not fp.exists():
-                return f"Error: '{args['filename']}' not found"
-            return fp.read_text(errors="replace")[:8000]
+                return f"Error: file not found: {fp}"
+            return fp.read_text(errors="replace")[:10000]
 
         elif name == "write_file":
-            fp = (workspace_dir / args["filename"]).resolve()
-            if not str(fp).startswith(ws):
-                return "Error: path outside workspace"
+            fp, in_ws = _resolve(args.get("filename", ""), workspace_dir)
+            if not in_ws:
+                return "Error: write_file only allowed within workspace"
             fp.parent.mkdir(parents=True, exist_ok=True)
-            fp.write_text(args["content"])
-            return f"Written: {args['filename']} ({len(args['content'])} chars)"
+            fp.write_text(args.get("content", ""))
+            return f"Written: {fp.name} ({len(args.get('content',''))} chars)"
 
         elif name == "execute_code":
             result = await asyncio.to_thread(
-                run_code_sandboxed, args["code"], args.get("language", "python")
+                run_code_sandboxed, args.get("code", ""), args.get("language", "python")
             )
             out = (result.get("stdout") or "").strip()
             err = (result.get("stderr") or "").strip()
-            return (out + ("\n[stderr]\n" + err if err else "")).strip()[:4000] or "(no output)"
+            combined = out + ("\n[stderr]\n" + err if err else "")
+            return combined.strip()[:5000] or "(no output)"
 
         elif name == "web_search":
-            results = await duckduckgo_search(args["query"], max_results=5)
+            results = await duckduckgo_search(args.get("query", ""), max_results=5)
             return "\n\n".join(
-                f"**{r['title']}**\n{r['url']}\n{r.get('body', '')}" for r in results
+                f"**{r['title']}**\n{r.get('url','')}\n{r.get('body','')}" for r in results
             ) or "No results"
 
         elif name == "request_permission":
-            # Workspace paths are auto-allowed; non-workspace paths pause here
-            path, op = args.get("path", ""), args.get("operation", "read")
             import uuid as _uuid
-            import threading
             req_id = _uuid.uuid4().hex[:12]
-            # Return a special marker — orchestrate() yields permission_request event
-            return f"__PERMISSION_REQUIRED__{req_id}__{path}__{op}"
+            return f"__ASK_PERMISSION__{req_id}__{args.get('path','')}__{args.get('operation','read')}"
 
         else:
             return f"Unknown tool: {name}"
+
     except Exception as e:
-        return f"Tool error: {e}"
+        return f"Tool error ({name}): {e}"
 
 
-# ── Agent loop ─────────────────────────────────────────────────────────────────
+# ── Agent loop (ReAct) ─────────────────────────────────────────────────────────
 async def _run_agent(agent: str, task: str, context: str,
                      model: str, workspace_dir: Path, ollama_url: str):
-    system = AGENT_SYSTEMS.get(agent, AGENT_SYSTEMS["general"])
-    user_msg = task if not context else f"Context from prior agents:\n{context}\n\nYour task:\n{task}"
-    messages = [{"role": "user", "content": user_msg}]
+    system = AGENT_SYSTEMS.get(agent, AGENT_SYSTEMS["general"]) + "\n\n" + TOOL_INSTRUCTIONS
+    user_content = task if not context else f"{context}\n\nYour task:\n{task}"
+    messages = [{"role": "user", "content": user_content}]
 
-    for _ in range(20):
-        msg = await _llm(model, messages, system, ollama_url, tools=TOOLS)
-        content = msg.get("content") or ""
-        tool_calls = msg.get("tool_calls") or []
+    for _ in range(25):
+        response = await _llm(model, messages, system, ollama_url)
+        matches = list(TOOL_RE.finditer(response))
 
-        if not tool_calls:
-            yield {"type": "agent_output", "content": content}
+        if not matches:
+            # No tool calls — final answer
+            yield {"type": "agent_output", "content": response}
             return
 
-        messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
+        # Take first tool call only (one per turn keeps conversation coherent)
+        m = matches[0]
+        fn_name = m.group(1).strip()
+        try:
+            fn_args = json.loads(m.group(2))
+        except Exception:
+            fn_args = {}
 
-        for tc in tool_calls:
-            fn      = tc.get("function", {})
-            fn_name = fn.get("name", "")
-            fn_args = fn.get("arguments", {})
-            if isinstance(fn_args, str):
-                try:    fn_args = json.loads(fn_args)
-                except: fn_args = {}
+        yield {"type": "tool_call", "tool": fn_name, "args": fn_args}
+        result = await _exec_tool(fn_name, fn_args, workspace_dir)
 
-            yield {"type": "tool_call", "tool": fn_name, "args": fn_args}
-            result = await _exec_tool(fn_name, fn_args, workspace_dir)
+        # Handle permission requests
+        if result.startswith("__NEED_PERMISSION__") or result.startswith("__ASK_PERMISSION__"):
+            parts   = result.split("__")
+            req_id  = parts[2] if result.startswith("__ASK_PERMISSION__") else None
+            path    = parts[3] if len(parts) > 3 else fn_args.get("path", "")
+            op      = parts[4] if len(parts) > 4 else "read"
 
-            # Permission check
-            if result.startswith("__PERMISSION_REQUIRED__"):
-                parts  = result.split("__")
-                req_id = parts[2]
-                path   = parts[3]
-                op     = parts[4]
-                event  = asyncio.Event()
-                holder: list = []
-                _perm_events[req_id] = (event, holder)
-                yield {"type": "permission_request", "req_id": req_id, "path": path, "operation": op}
-                try:
-                    await asyncio.wait_for(event.wait(), timeout=120)
-                    decision = holder[0] if holder else "deny"
-                except asyncio.TimeoutError:
-                    decision = "deny"
-                finally:
-                    _perm_events.pop(req_id, None)
-                result = f"Permission {decision} for {path}"
+            import uuid as _uuid
+            if not req_id:
+                req_id = _uuid.uuid4().hex[:12]
 
-            yield {"type": "tool_result", "tool": fn_name, "result": result[:500]}
-            messages.append({"role": "tool", "content": result})
+            event_obj = asyncio.Event()
+            holder: list = []
+            _perm_events[req_id] = (event_obj, holder)
 
-    yield {"type": "agent_output", "content": content}
+            # Register with the permissions module so the dialog appears
+            perms.request_access(path, op)
+
+            yield {"type": "permission_request", "req_id": req_id, "path": path, "operation": op}
+            try:
+                await asyncio.wait_for(event_obj.wait(), timeout=120)
+                decision = holder[0] if holder else "deny"
+            except asyncio.TimeoutError:
+                decision = "deny"
+            finally:
+                _perm_events.pop(req_id, None)
+
+            result = f"Permission {decision} for {path}. " + (
+                "You may now access this path." if "allow" in decision else "Access denied — do not attempt to access this path."
+            )
+
+        yield {"type": "tool_result", "tool": fn_name, "result": result[:600]}
+
+        # Continue conversation with the tool result
+        messages.append({"role": "assistant", "content": response})
+        messages.append({"role": "user", "content": f"Tool result:\n{result}\n\nContinue."})
+
+    yield {"type": "agent_output", "content": response}
 
 
 # ── Main orchestration generator ───────────────────────────────────────────────
 async def orchestrate(task: str, model: str, project: str,
                       workspace_dir: Path, ollama_url: str) -> AsyncGenerator[dict, None]:
 
-    # Step 1 — Plan
+    # 1. Plan
     yield {"type": "planning"}
     try:
-        plan_msg = await _llm(model, [{"role": "user", "content": task}], ORCHESTRATOR_SYSTEM, ollama_url)
-        plan = _parse_json_response(plan_msg.get("content", ""))
+        raw_plan = await _llm(model, [{"role": "user", "content": task}], ORCHESTRATOR_SYSTEM, ollama_url)
+        plan     = _parse_json(raw_plan)
+        steps    = plan.get("steps") or []
+        if not steps:
+            raise ValueError("empty steps")
     except Exception as e:
-        yield {"type": "error", "message": f"Planning failed: {e}"}
-        return
-
-    steps = plan.get("steps", [])
-    if not steps:
-        yield {"type": "error", "message": "Orchestrator returned empty plan"}
-        return
+        # Fallback: single general agent
+        steps = [{"agent": "general", "task": task}]
+        plan  = {"plan_summary": "Direct execution", "steps": steps}
 
     yield {"type": "plan", "summary": plan.get("plan_summary", ""), "steps": steps}
 
-    # Step 2 — Execute → Audit → Revise (up to 3 rounds)
-    MAX_ROUNDS = 3
+    # 2. Execute → Audit → Revise (max 3 rounds)
+    MAX_ROUNDS     = 3
     audit_feedback = ""
-    all_agent_outputs: dict[str, str] = {}
+    all_outputs: dict[str, str] = {}
 
     for round_num in range(1, MAX_ROUNDS + 1):
         context = f"Original task: {task}\n"
         if audit_feedback:
-            context += f"\nAuditor feedback (round {round_num - 1}) — please fix:\n{audit_feedback}\n"
+            context += f"\nAuditor feedback (fix these):\n{audit_feedback}\n"
 
         for step in steps:
-            agent      = step["agent"]
-            agent_task = step["task"]
+            agent      = step.get("agent", "general")
+            agent_task = step.get("task", task)
             if audit_feedback:
-                agent_task += f"\n\nFix auditor issues: {audit_feedback}"
+                agent_task += f"\n\nFix: {audit_feedback}"
 
             yield {"type": "agent_start", "agent": agent, "task": agent_task, "round": round_num}
 
@@ -296,23 +292,23 @@ async def orchestrate(task: str, model: str, project: str,
                 else:
                     yield event
 
-            all_agent_outputs[agent] = output
+            all_outputs[agent] = output
             context += f"\n--- {agent.upper()} ---\n{output}\n"
             yield {"type": "agent_done", "agent": agent, "output": output}
 
-        # Step 3 — Audit
+        # 3. Audit
         yield {"type": "audit_start", "round": round_num}
-        combined = "\n\n".join(f"=== {a.upper()} ===\n{o}" for a, o in all_agent_outputs.items())
-        audit_prompt = f"Original task: {task}\n\nAgent outputs:\n{combined}"
+        combined     = "\n\n".join(f"=== {a.upper()} ===\n{o}" for a, o in all_outputs.items())
+        audit_prompt = f"Task: {task}\n\nWork done:\n{combined}"
 
         try:
-            audit_msg = await _llm(model, [{"role": "user", "content": audit_prompt}], AUDITOR_SYSTEM, ollama_url)
-            audit = _parse_json_response(audit_msg.get("content", ""))
+            raw_audit    = await _llm(model, [{"role": "user", "content": audit_prompt}], AUDITOR_SYSTEM, ollama_url)
+            audit        = _parse_json(raw_audit)
         except Exception:
             audit = {"passed": True, "score": 7, "feedback": "", "issues": []}
 
-        score   = max(0, min(10, int(audit.get("score", 7))))
-        passed  = bool(audit.get("passed", score >= 7))
+        score          = max(0, min(10, int(audit.get("score", 7))))
+        passed         = bool(audit.get("passed", score >= 7))
         audit_feedback = audit.get("feedback", "")
 
         yield {
@@ -325,12 +321,7 @@ async def orchestrate(task: str, model: str, project: str,
         }
 
         if passed or round_num == MAX_ROUNDS:
-            # Step 4 — Final synthesis
-            final_prompt = (
-                f"Original task: {task}\n\n"
-                f"Completed work:\n{combined}\n\n"
-                f"Audit score: {score}/10"
-            )
-            final_msg = await _llm(model, [{"role": "user", "content": final_prompt}], FINAL_SYSTEM, ollama_url)
-            yield {"type": "done", "output": final_msg.get("content", ""), "score": score}
+            final_prompt = f"Task: {task}\n\nCompleted work:\n{combined}\n\nAudit: {score}/10"
+            final_text   = await _llm(model, [{"role": "user", "content": final_prompt}], FINAL_SYSTEM, ollama_url)
+            yield {"type": "done", "output": final_text, "score": score}
             return
