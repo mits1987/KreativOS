@@ -1,16 +1,17 @@
-﻿import React, { useState, useEffect } from 'react'
-import { FolderOpen, FileText, Trash2, Download, Eye, RefreshCw, Plus } from 'lucide-react'
+import React, { useState, useEffect, useCallback } from 'react'
+import { FolderOpen, FileText, Trash2, Download, RefreshCw, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
-import useStore from '../store'
 import api from '../utils/api'
 import MessageRenderer from '../components/MessageRenderer'
+
+const PAGE_SIZE = 50
 
 function FileIcon({ name }) {
   const ext = name.split('.').pop()?.toLowerCase()
   const icons = {
     py: '🐍', js: '📜', jsx: '⚛️', ts: '📘', tsx: '⚛️',
     html: '🌐', css: '🎨', json: '📋', md: '📝',
-    sh: '⚙️', yml: '🔧', yaml: '🔧', dockerfile: '🐳', txt: '📄',
+    sh: '⚙️', yml: '🔧', yaml: '🔧', txt: '📄',
   }
   return <span className="text-base">{icons[ext] || '📄'}</span>
 }
@@ -22,74 +23,71 @@ function formatSize(bytes) {
 }
 
 export default function FilesView() {
-  const [files, setFiles] = useState([])
+  const [files,    setFiles]    = useState([])
+  const [total,    setTotal]    = useState(0)
+  const [page,     setPage]     = useState(0)
   const [selected, setSelected] = useState(null)
-  const [content, setContent] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [content,  setContent]  = useState('')
+  const [loading,  setLoading]  = useState(false)
+  const [editing,  setEditing]  = useState(false)
   const [creating, setCreating] = useState(false)
-  const [newFileName, setNewFileName] = useState('')
-  const [newFileContent, setNewFileContent] = useState('')
-  const [editing, setEditing] = useState(false)
+  const [newName,  setNewName]  = useState('')
+  const [newBody,  setNewBody]  = useState('')
 
-  const load = async () => {
+  const load = useCallback(async (p = page) => {
     setLoading(true)
     try {
-      const data = await api.files()
+      const data = await api.files(PAGE_SIZE, p * PAGE_SIZE)
       setFiles(data.files || [])
+      setTotal(data.total || 0)
     } catch (e) {
       console.error('Failed to load files', e)
     } finally {
       setLoading(false)
     }
-  }
+  }, [page])
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(page) }, [page])
 
   const openFile = async (file) => {
-    setSelected(file)
-    setEditing(false)
+    setSelected(file); setEditing(false)
     try {
       const data = await api.readFile(file.name)
       setContent(data.content)
-    } catch (e) {
-      setContent(`Error reading file: ${e.message}`)
-    }
+    } catch (e) { setContent(`Error reading file: ${e.message}`) }
   }
 
   const deleteFile = async (filename) => {
     if (!confirm(`Delete ${filename}?`)) return
     await api.deleteFile(filename)
     if (selected?.name === filename) { setSelected(null); setContent('') }
-    load()
+    load(page)
   }
 
   const saveEdit = async () => {
     if (!selected) return
     await api.writeFile(selected.name, content)
-    setEditing(false)
-    load()
+    setEditing(false); load(page)
   }
 
   const createFile = async () => {
-    if (!newFileName.trim()) return
-    await api.writeFile(newFileName.trim(), newFileContent)
-    setCreating(false)
-    setNewFileName('')
-    setNewFileContent('')
-    load()
+    if (!newName.trim()) return
+    await api.writeFile(newName.trim(), newBody)
+    setCreating(false); setNewName(''); setNewBody(''); load(0); setPage(0)
   }
 
-  const downloadFile = (filename, content) => {
-    const blob = new Blob([content], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename.split('/').pop()
-    a.click()
+  const downloadFile = (filename, fileContent) => {
+    const blob = new Blob([fileContent], { type: 'text/plain' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href = url; a.download = filename.split('/').pop(); a.click()
     URL.revokeObjectURL(url)
   }
 
-  const isCode = (name) => /\.(py|js|jsx|ts|tsx|html|css|json|md|sh|yml|yaml|txt|dockerfile)$/i.test(name)
+  const isCode = (name) =>
+    /\.(py|js|jsx|ts|tsx|html|css|json|md|sh|yml|yaml|txt)$/i.test(name)
+
+  const totalPages = Math.ceil(total / PAGE_SIZE)
 
   return (
     <div className="flex h-full">
@@ -99,13 +97,14 @@ export default function FilesView() {
           <div className="flex items-center gap-2">
             <FolderOpen size={16} className="text-accent-amber" />
             <span className="text-sm font-medium text-white">Workspace</span>
+            <span className="text-xs text-slate-600">({total})</span>
           </div>
           <div className="flex items-center gap-1">
             <button onClick={() => setCreating(true)}
               className="p-1.5 text-slate-400 hover:text-white hover:bg-surface-3 rounded-lg transition-all">
               <Plus size={14} />
             </button>
-            <button onClick={load}
+            <button onClick={() => load(page)}
               className={clsx('p-1.5 text-slate-400 hover:text-white hover:bg-surface-3 rounded-lg transition-all', loading && 'animate-spin')}>
               <RefreshCw size={14} />
             </button>
@@ -123,7 +122,9 @@ export default function FilesView() {
               onClick={() => openFile(file)}
               className={clsx(
                 'group flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-all',
-                selected?.name === file.name ? 'bg-surface-3 text-white' : 'text-slate-400 hover:bg-surface-2 hover:text-white'
+                selected?.name === file.name
+                  ? 'bg-surface-3 text-white'
+                  : 'text-slate-400 hover:bg-surface-2 hover:text-white'
               )}>
               <FileIcon name={file.name} />
               <div className="flex-1 min-w-0">
@@ -137,26 +138,35 @@ export default function FilesView() {
             </div>
           ))}
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-2 border-t border-white/5">
+            <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+              className="p-1 text-slate-500 hover:text-white disabled:opacity-30 transition-all">
+              <ChevronLeft size={14} />
+            </button>
+            <span className="text-xs text-slate-600">
+              {page + 1} / {totalPages}
+            </span>
+            <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
+              className="p-1 text-slate-500 hover:text-white disabled:opacity-30 transition-all">
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* File viewer / editor */}
+      {/* Viewer / editor */}
       <div className="flex-1 flex flex-col">
         {creating ? (
           <div className="flex-1 p-6">
             <h3 className="text-white font-medium mb-4">Create New File</h3>
-            <input
-              className="input-base w-full mb-3"
-              placeholder="filename.py"
-              value={newFileName}
-              onChange={e => setNewFileName(e.target.value)}
-            />
-            <textarea
-              className="input-base w-full font-mono text-xs leading-relaxed"
-              placeholder="File content…"
-              rows={20}
-              value={newFileContent}
-              onChange={e => setNewFileContent(e.target.value)}
-            />
+            <input className="input-base w-full mb-3" placeholder="filename.py"
+              value={newName} onChange={e => setNewName(e.target.value)} />
+            <textarea className="input-base w-full font-mono text-xs leading-relaxed"
+              placeholder="File content…" rows={20}
+              value={newBody} onChange={e => setNewBody(e.target.value)} />
             <div className="flex gap-3 mt-4">
               <button onClick={createFile} className="btn-primary">Create File</button>
               <button onClick={() => setCreating(false)} className="btn-ghost">Cancel</button>
@@ -177,27 +187,21 @@ export default function FilesView() {
                   </>
                 ) : (
                   <>
-                    <button onClick={() => setEditing(true)}
-                      className="btn-ghost text-xs py-1.5">Edit</button>
+                    <button onClick={() => setEditing(true)} className="btn-ghost text-xs py-1.5">Edit</button>
                     <button onClick={() => downloadFile(selected.name, content)}
                       className="btn-ghost text-xs py-1.5 flex items-center gap-1">
                       <Download size={12} /> Download
                     </button>
                     <button onClick={() => deleteFile(selected.name)}
-                      className="btn-ghost text-xs py-1.5 text-red-400 hover:text-red-300">
-                      Delete
-                    </button>
+                      className="btn-ghost text-xs py-1.5 text-red-400 hover:text-red-300">Delete</button>
                   </>
                 )}
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-5">
               {editing ? (
-                <textarea
-                  className="input-base w-full h-full font-mono text-xs leading-relaxed resize-none"
-                  value={content}
-                  onChange={e => setContent(e.target.value)}
-                />
+                <textarea className="input-base w-full h-full font-mono text-xs leading-relaxed resize-none"
+                  value={content} onChange={e => setContent(e.target.value)} />
               ) : isCode(selected.name) ? (
                 <MessageRenderer content={`\`\`\`${selected.name.split('.').pop()}\n${content}\n\`\`\``} />
               ) : (

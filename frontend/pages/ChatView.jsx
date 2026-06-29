@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, StopCircle, ChevronDown, Plus, Trash2 } from 'lucide-react'
+import { Send, StopCircle, ChevronDown, AlertCircle } from 'lucide-react'
 import clsx from 'clsx'
 import useStore from '../store'
 import api from '../utils/api'
@@ -25,7 +25,9 @@ function AgentPicker({ agents, selected, onSelect }) {
                 selected === agent.id ? 'bg-surface-3 text-white' : 'text-slate-400')}>
               <span>{agent.icon}</span>
               <span className="text-xs font-medium text-white">{agent.name}</span>
-              {selected === agent.id && <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ backgroundColor: agent.color }} />}
+              {selected === agent.id && (
+                <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ backgroundColor: agent.color }} />
+              )}
             </button>
           ))}
         </div>
@@ -63,19 +65,38 @@ export default function ChatView() {
   const {
     conversations, activeConvId, createConversation, addMessage, updateLastMessage,
     selectedModel, setSelectedModel, models, selectedAgent, setSelectedAgent, agents,
-    isStreaming, setIsStreaming, backendUrl,
+    isStreaming, setIsStreaming,
   } = useStore()
 
-  const [input, setInput] = useState('')
-  const messagesEndRef = useRef(null)
-  const textareaRef    = useRef(null)
-  const abortRef       = useRef(false)
+  const [input,        setInput]        = useState('')
+  const [streamError,  setStreamError]  = useState(null) // [Fix] connection lost indicator
+  const [thinkingTime, setThinkingTime] = useState(0)    // seconds since last chunk
+  const messagesEndRef  = useRef(null)
+  const textareaRef     = useRef(null)
+  const abortRef        = useRef(false)
+  const lastChunkRef    = useRef(null)
+  const thinkingTimerRef= useRef(null)
 
   const conv     = conversations.find(c => c.id === activeConvId)
   const messages = conv?.messages || []
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
   useEffect(() => { if (!activeConvId) createConversation() }, [])
+
+  // Thinking-time counter: shows "Model is thinking… Xs" when no chunk for >5s
+  useEffect(() => {
+    if (isStreaming) {
+      lastChunkRef.current = Date.now()
+      thinkingTimerRef.current = setInterval(() => {
+        const secs = Math.floor((Date.now() - (lastChunkRef.current || Date.now())) / 1000)
+        setThinkingTime(secs)
+      }, 1000)
+    } else {
+      clearInterval(thinkingTimerRef.current)
+      setThinkingTime(0)
+    }
+    return () => clearInterval(thinkingTimerRef.current)
+  }, [isStreaming])
 
   const send = useCallback(async (text) => {
     const content = (text || input).trim()
@@ -86,13 +107,14 @@ export default function ChatView() {
 
     addMessage(convId, { role: 'user', content })
     setInput('')
-    if (textareaRef.current) { textareaRef.current.style.height = 'auto' }
+    setStreamError(null)
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setIsStreaming(true)
     abortRef.current = false
 
     addMessage(convId, { role: 'assistant', content: '', agent: selectedAgent })
 
-    const conv = conversations.find(c => c.id === convId)
+    const conv    = conversations.find(c => c.id === convId)
     const history = [...(conv?.messages || []), { role: 'user', content }]
       .map(m => ({ role: m.role, content: m.content }))
 
@@ -100,11 +122,14 @@ export default function ChatView() {
       let full = ''
       for await (const chunk of api.streamChat(selectedModel, history, selectedAgent)) {
         if (abortRef.current) break
+        lastChunkRef.current = Date.now() // reset thinking timer on each chunk
         full += chunk
         updateLastMessage(convId, full)
       }
     } catch (e) {
-      updateLastMessage(convId, `❌ Error: ${e.message}`)
+      // [Fix] Show connection lost — never auto-retry (would duplicate the message)
+      setStreamError('Connection lost — please try sending again.')
+      updateLastMessage(convId, '*(Connection lost. Please resend.)*')
     } finally {
       setIsStreaming(false)
     }
@@ -115,10 +140,10 @@ export default function ChatView() {
   }
 
   const quickPrompts = [
-    { icon: '💻', label: 'Build a FastAPI REST API with CRUD', agent: 'coder' },
-    { icon: '🏗️', label: 'Design a SaaS app architecture', agent: 'architect' },
-    { icon: '🔍', label: 'Research best practices for microservices', agent: 'researcher' },
-    { icon: '⚙️', label: 'Write a Docker + CI/CD deployment pipeline', agent: 'devops' },
+    { icon: '💻', label: 'Build a FastAPI REST API with CRUD',           agent: 'coder' },
+    { icon: '🏗️', label: 'Design a SaaS app architecture',              agent: 'architect' },
+    { icon: '🔍', label: 'Research best practices for microservices',    agent: 'researcher' },
+    { icon: '⚙️', label: 'Write a Docker + CI/CD deployment pipeline',   agent: 'devops' },
   ]
 
   return (
@@ -128,11 +153,13 @@ export default function ChatView() {
           <div className="max-w-2xl mx-auto text-center mt-12">
             <div className="text-5xl mb-4">🧠</div>
             <h2 className="text-2xl font-bold text-white mb-2">KreativOS</h2>
-            <p className="text-slate-500 mb-2 text-sm">Multi-agent · Ralph Loop · Voice · Skills · File workspace</p>
-            <p className="text-slate-600 mb-8 text-xs">Powered by your local Ollama — 100% private, 100% free</p>
+            <p className="text-slate-500 mb-8 text-sm">
+              Multi-agent · Ralph Loop · Voice · Skills · File workspace
+            </p>
             <div className="grid grid-cols-2 gap-3">
               {quickPrompts.map((p, i) => (
-                <button key={i} onClick={() => { setSelectedAgent(p.agent); setInput(p.label); textareaRef.current?.focus() }}
+                <button key={i}
+                  onClick={() => { setSelectedAgent(p.agent); setInput(p.label); textareaRef.current?.focus() }}
                   className="glass glass-hover p-4 rounded-xl text-left border border-white/10 transition-all group">
                   <div className="text-2xl mb-2">{p.icon}</div>
                   <div className="text-xs text-slate-300 group-hover:text-white">{p.label}</div>
@@ -164,9 +191,18 @@ export default function ChatView() {
                       <span className="text-xs font-medium" style={{ color: agentInfo?.color || '#6366f1' }}>
                         {agentInfo?.name || 'Assistant'}
                       </span>
-                      {isLast && isStreaming && <span className="text-xs text-slate-600 agent-pulse">thinking…</span>}
+                      {isLast && isStreaming && (
+                        <span className="text-xs text-slate-500 agent-pulse">
+                          {thinkingTime > 5
+                            ? `Model is thinking… ${thinkingTime}s`
+                            : 'thinking…'}
+                        </span>
+                      )}
                     </div>
-                    <MessageRenderer content={msg.content || ''} isStreaming={isLast && isStreaming && !msg.content} />
+                    <MessageRenderer
+                      content={msg.content || ''}
+                      isStreaming={isLast && isStreaming && !msg.content}
+                    />
                   </div>
                 </div>
               )}
@@ -175,6 +211,15 @@ export default function ChatView() {
         })}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Connection lost banner */}
+      {streamError && (
+        <div className="mx-4 mb-2 flex items-center gap-2 px-4 py-2.5 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-400">
+          <AlertCircle size={14} />
+          {streamError}
+          <button onClick={() => setStreamError(null)} className="ml-auto text-red-500 hover:text-red-300 text-lg">×</button>
+        </div>
+      )}
 
       {/* Input */}
       <div className="border-t border-white/5 bg-surface-1 px-4 py-4">
@@ -187,13 +232,16 @@ export default function ChatView() {
               rows={1} disabled={isStreaming}
               className="w-full bg-transparent px-4 py-3 text-sm text-white placeholder-slate-600 resize-none focus:outline-none max-h-40 overflow-y-auto"
               style={{ minHeight: '48px' }}
-              onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px' }}
+              onInput={e => {
+                e.target.style.height = 'auto'
+                e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'
+              }}
             />
             <div className="flex items-center justify-between px-3 pb-2 gap-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <AgentPicker agents={agents} selected={selectedAgent} onSelect={setSelectedAgent} />
                 <ModelPicker models={models} selected={selectedModel} onSelect={setSelectedModel} />
-                <VoiceButton onTranscript={(t) => send(t)} backendUrl={backendUrl} />
+                <VoiceButton onTranscript={t => send(t)} />
               </div>
               <div className="flex items-center gap-2">
                 {isStreaming ? (
@@ -211,7 +259,9 @@ export default function ChatView() {
             </div>
           </div>
           {!selectedModel && (
-            <p className="text-xs text-amber-500/70 mt-2 text-center">⚠️ No model selected. Check Settings.</p>
+            <p className="text-xs text-amber-500/70 mt-2 text-center">
+              ⚠️ No model selected. Go to Settings to connect Ollama.
+            </p>
           )}
         </div>
       </div>
