@@ -411,6 +411,17 @@ class OfficeRequest(BaseModel):
     title: str = ""
     project: str = ""
 
+class McpServerRequest(BaseModel):
+    name: str
+    url: str
+    description: str = ""
+    enabled: bool = True
+
+class McpCallRequest(BaseModel):
+    server: str
+    tool: str
+    args: dict = {}
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  AUTH MIDDLEWARE  [P0-1]
@@ -1229,6 +1240,43 @@ async def grade_output(
     audit_log.log("skill_graded", f"{agent} scored {score}/10", agent=agent)
     return {"score": score, "feedback": fb, "agent": agent}
 
+
+# ── MCP ───────────────────────────────────────────────────────────────────────
+@app.get("/api/mcp/servers")
+async def mcp_list(current_user: dict = Depends(get_current_user)):
+    from .mcp_client import load_servers
+    return {"servers": load_servers()}
+
+@app.post("/api/mcp/servers")
+async def mcp_add(req: McpServerRequest, current_user: dict = Depends(get_current_user)):
+    from .mcp_client import load_servers, save_servers
+    servers = load_servers()
+    if any(s["name"] == req.name for s in servers):
+        raise HTTPException(400, "Server name already exists")
+    servers.append(req.model_dump())
+    save_servers(servers)
+    return {"ok": True}
+
+@app.delete("/api/mcp/servers/{name}")
+async def mcp_delete(name: str, current_user: dict = Depends(get_current_user)):
+    from .mcp_client import load_servers, save_servers
+    save_servers([s for s in load_servers() if s["name"] != name])
+    return {"ok": True}
+
+@app.get("/api/mcp/servers/{name}/tools")
+async def mcp_tools(name: str, current_user: dict = Depends(get_current_user)):
+    from .mcp_client import load_servers, list_tools
+    server = next((s for s in load_servers() if s["name"] == name), None)
+    if not server:
+        raise HTTPException(404, "Server not found")
+    tools = await list_tools(server["url"])
+    return {"tools": tools}
+
+@app.post("/api/mcp/call")
+async def mcp_call(req: McpCallRequest, current_user: dict = Depends(get_current_user)):
+    from .mcp_client import call_tool
+    result = await call_tool(req.server, req.tool, req.args)
+    return {"result": result}
 
 # ── Auth management ────────────────────────────────────────────────────────────
 @app.get("/api/auth/users")

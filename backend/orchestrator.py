@@ -16,6 +16,7 @@ from .config import AGENT_SYSTEMS
 from . import permissions as perms
 from .sandbox import run_code_sandboxed
 from .web_search import duckduckgo_search
+from .mcp_client import call_tool as mcp_call_tool, load_servers as mcp_load_servers
 
 # ── Permission signalling ──────────────────────────────────────────────────────
 _perm_events: dict[str, tuple] = {}
@@ -41,6 +42,7 @@ Available tools:
 - write_file   {"filename": "relative/path", "content": "text"} — write to workspace
 - execute_code {"code": "...", "language": "python"} — run code, get stdout/stderr
 - web_search   {"query": "..."} — search the web
+- call_mcp     {"server": "open-design", "tool": "generate_prototype", "args": {...}} — call an external MCP server tool
 - request_permission {"path": "/absolute/path", "operation": "read"} — ask user before accessing paths outside workspace
 
 Rules:
@@ -98,6 +100,16 @@ Summarise what was done, list files created, explain how to use/run them.
 Be concise. Use markdown."""
 
 TOOL_RE = re.compile(r'TOOL:\s*(\w+)\s*\nARGS:\s*(\{[^}]*\}|\{[\s\S]*?\})', re.MULTILINE)
+
+
+def _mcp_hint() -> str:
+    servers = [s for s in mcp_load_servers() if s.get("enabled", True)]
+    if not servers:
+        return ""
+    lines = ["", "## Configured MCP Servers (call via call_mcp tool):"]
+    for s in servers:
+        lines.append(f"- {s['name']}: {s.get('description', s['url'])}")
+    return "\n".join(lines)
 
 
 def _parse_json(raw: str) -> dict:
@@ -174,6 +186,15 @@ async def _exec_tool(name: str, args: dict, workspace_dir: Path) -> str:
                 f"**{r['title']}**\n{r.get('url','')}\n{r.get('body','')}" for r in results
             ) or "No results"
 
+        elif name == "call_mcp":
+            server = args.get("server", "")
+            tool   = args.get("tool", "")
+            margs  = args.get("args", {})
+            if not server or not tool:
+                return "Error: call_mcp requires 'server' and 'tool'"
+            result = await mcp_call_tool(server, tool, margs)
+            return json.dumps(result) if isinstance(result, (dict, list)) else str(result)
+
         elif name == "request_permission":
             import uuid as _uuid
             req_id = _uuid.uuid4().hex[:12]
@@ -223,7 +244,7 @@ async def _run_agent(agent: str, task: str, context: str,
                      custom_system: str = ""):
     """ReAct loop for one agent. Yields event dicts."""
     base_system = custom_system or AGENT_SYSTEMS.get(agent, AGENT_SYSTEMS["general"])
-    system = base_system + "\n\n" + TOOL_INSTRUCTIONS
+    system = base_system + "\n\n" + TOOL_INSTRUCTIONS + _mcp_hint()
     user_content = task if not context else f"{context}\n\nYour task:\n{task}"
     messages = [{"role": "user", "content": user_content}]
 

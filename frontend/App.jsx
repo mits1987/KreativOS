@@ -13,6 +13,7 @@ import FilesView      from './pages/FilesView'
 import MemoryView     from './pages/MemoryView'
 import SkillsView     from './pages/SkillsView'
 import ModelHubView   from './pages/ModelHubView'
+import MCPView        from './pages/MCPView'
 import SchedulerView  from './pages/SchedulerView'
 import PromptsView    from './pages/PromptsView'
 import AuditView      from './pages/AuditView'
@@ -42,6 +43,7 @@ const VIEWS = {
   memory:      <MemoryView />,
   skills:      <SkillsView />,
   hub:         <ModelHubView />,
+  mcp:         <MCPView />,
   scheduler:   <SchedulerView />,
   prompts:     <PromptsView />,
   audit:       <AuditView />,

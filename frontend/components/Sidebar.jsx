@@ -3,7 +3,7 @@ import {
   MessageSquare, FolderOpen, Settings, ChevronLeft, Plus, Trash2,
   Zap, LayoutDashboard, Search, Package, GitBranch, Workflow,
   Blocks, Database, Clock, Users, Terminal, Shield, HardDrive,
-  BookOpen, Star, Bot, Sparkles, LogOut, ChevronRight,
+  BookOpen, Star, Bot, Sparkles, LogOut, ChevronRight, Network,
 } from 'lucide-react'
 import useStore from '../store'
 import clsx from 'clsx'
@@ -26,6 +26,7 @@ const NAV = [
   { id:'memory',     icon:Database,        label:'Memory',       group:'data'   },
   { id:'skills',     icon:Star,            label:'Skills',       group:'data'   },
   { id:'hub',        icon:Package,         label:'Model Hub',    group:'data'   },
+  { id:'mcp',        icon:Network,         label:'MCP Servers',  group:'data'   },
   // System
   { id:'scheduler',  icon:Clock,           label:'Scheduler',    group:'system' },
   { id:'telegram',   icon:Bot,             label:'Telegram Bot', group:'system' },
