@@ -31,8 +31,9 @@ export default function FilesView() {
   const [loading,  setLoading]  = useState(false)
   const [editing,  setEditing]  = useState(false)
   const [creating, setCreating] = useState(false)
-  const [newName,  setNewName]  = useState('')
-  const [newBody,  setNewBody]  = useState('')
+  const [newName,    setNewName]    = useState('')
+  const [newBody,    setNewBody]    = useState('')
+  const [deleteTarget, setDeleteTarget] = useState(null)
 
   const load = useCallback(async (p = page) => {
     setLoading(true)
@@ -57,10 +58,11 @@ export default function FilesView() {
     } catch (e) { setContent(`Error reading file: ${e.message}`) }
   }
 
-  const deleteFile = async (filename) => {
-    if (!confirm(`Delete ${filename}?`)) return
-    await api.deleteFile(filename)
-    if (selected?.name === filename) { setSelected(null); setContent('') }
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    await api.deleteFile(deleteTarget)
+    if (selected?.name === deleteTarget) { setSelected(null); setContent('') }
+    setDeleteTarget(null)
     load(page)
   }
 
@@ -131,7 +133,7 @@ export default function FilesView() {
                 <div className="text-xs font-mono truncate">{file.name}</div>
                 <div className="text-xs text-slate-600">{formatSize(file.size)}</div>
               </div>
-              <button onClick={e => { e.stopPropagation(); deleteFile(file.name) }}
+              <button onClick={e => { e.stopPropagation(); setDeleteTarget(file.name) }}
                 className="opacity-0 group-hover:opacity-100 p-1 text-slate-600 hover:text-red-400 transition-all">
                 <Trash2 size={12} />
               </button>
@@ -192,7 +194,7 @@ export default function FilesView() {
                       className="btn-ghost text-xs py-1.5 flex items-center gap-1">
                       <Download size={12} /> Download
                     </button>
-                    <button onClick={() => deleteFile(selected.name)}
+                    <button onClick={() => setDeleteTarget(selected.name)}
                       className="btn-ghost text-xs py-1.5 text-red-400 hover:text-red-300">Delete</button>
                   </>
                 )}
@@ -218,6 +220,24 @@ export default function FilesView() {
           </div>
         )}
       </div>
+
+      {/* Delete confirmation overlay */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-surface-1 border border-red-500/30 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl animate-fade-in">
+            <div className="text-sm font-semibold text-white mb-4">Delete {deleteTarget}?</div>
+            <div className="text-xs text-slate-400 mb-6">This cannot be undone.</div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setDeleteTarget(null)}
+                className="btn-ghost text-xs">Cancel</button>
+              <button onClick={confirmDelete}
+                className="px-3 py-2 bg-red-500/15 border border-red-500/30 text-red-400 rounded-lg text-xs font-medium hover:bg-red-500/25 transition-all">
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

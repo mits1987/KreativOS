@@ -66,6 +66,7 @@ export default function App() {
   const [updateReady,  setUpdateReady]  = useState(false)   // [P1-6] PWA update
   const [installed,    setInstalled]    = useState(isPWAInstalled())
   const [showOnboard,  setShowOnboard]  = useState(false)
+  const [reconnecting, setReconnecting] = useState(false)
 
   // ── Init: load models, agents, health ───────────────────────────────────────
   useEffect(() => {
@@ -107,6 +108,19 @@ export default function App() {
       createConversation()
     }
   }, [activeView])
+
+  // Reconnect on visibility change
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        setReconnecting(true)
+        useStore.getState().setOllamaStatus('unknown')
+        setTimeout(() => setReconnecting(false), 2000)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
 
   // Handle ?view= shortcut from PWA shortcuts
   useEffect(() => {
@@ -202,6 +216,14 @@ export default function App() {
               >
                 <X size={13} />
               </button>
+            </div>
+          )}
+
+          {/* Reconnecting toast */}
+          {reconnecting && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 glass border border-accent-purple/30 rounded-xl px-4 py-3 shadow-xl animate-fade-in">
+              <RefreshCw size={14} className="animate-spin text-accent-purple" />
+              <span className="text-sm text-white">Reconnecting…</span>
             </div>
           )}
 

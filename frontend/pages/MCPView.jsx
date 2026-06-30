@@ -129,7 +129,7 @@ export default function MCPView() {
                     {st?.status === 'checking'
                       ? <RefreshCw size={11} className="animate-spin"/>
                       : <RefreshCw size={11}/>}
-                    Test
+                    {st?.status === 'checking' ? 'Testing' : 'Test'}
                   </button>
                   <button onClick={() => remove(srv.name)} className="text-slate-600 hover:text-red-400 transition-colors p-1">
                     <Trash2 size={13}/>

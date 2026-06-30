@@ -25,7 +25,6 @@ export default function SettingsView() {
   } = useStore()
 
   const [urlInput, setUrlInput] = useState(backendUrl)
-  const [health, setHealth] = useState(null)
   const [checking, setChecking] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -33,7 +32,6 @@ export default function SettingsView() {
     setChecking(true)
     try {
       const h = await api.health()
-      setHealth(h)
       setOllamaStatus(h.ollama === 'connected' ? 'connected' : 'disconnected')
       // Reload models
       const mdata = await api.models()
@@ -46,7 +44,6 @@ export default function SettingsView() {
       setAgents(adata.agents || [])
     } catch (e) {
       setOllamaStatus('disconnected')
-      setHealth(null)
     } finally {
       setChecking(false)
     }
@@ -97,7 +94,7 @@ export default function SettingsView() {
             <div className="flex items-center justify-between p-3 bg-surface-2 rounded-xl">
               <div>
                 <div className="text-sm text-white">Backend Status</div>
-                <StatusBadge status={ollamaStatus === 'connected' ? 'connected' : health === null ? 'disconnected' : 'connected'} />
+                <StatusBadge status={ollamaStatus} />
               </div>
               <button onClick={checkHealth} disabled={checking}
                 className="btn-ghost flex items-center gap-1.5 text-xs">
@@ -106,22 +103,7 @@ export default function SettingsView() {
               </button>
             </div>
 
-            {health && (
-              <div className="p-3 bg-surface-2 rounded-xl text-xs space-y-1 font-mono">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Ollama</span>
-                  <span className={health.ollama === 'connected' ? 'text-accent-green' : 'text-red-400'}>{health.ollama}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Workspace</span>
-                  <span className="text-slate-300 truncate ml-4">{health.workspace}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Last checked</span>
-                  <span className="text-slate-400">{new Date(health.timestamp).toLocaleTimeString()}</span>
-                </div>
-              </div>
-            )}
+
           </div>
         </div>
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import {
   MessageSquare, FolderOpen, Settings, ChevronLeft, Plus, Trash2,
   Sparkles, Zap, LayoutDashboard, Search, Package, GitBranch, Workflow,
@@ -114,6 +114,14 @@ export default function Sidebar() {
     activeView, setActiveView, ollamaStatus, agents, logout,
   } = useStore()
   const [search, setSearch] = useState('')
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null)
+  const lastNavRef = useRef(0)
+  const handleNav = (view) => {
+    const now = Date.now()
+    if (now - lastNavRef.current < 200) return
+    lastNavRef.current = now
+    setActiveView(view)
+  }
   const filtered = conversations.filter(c =>
     c.title.toLowerCase().includes(search.toLowerCase())
   )
@@ -122,7 +130,7 @@ export default function Sidebar() {
     return (
       <SidebarCollapsed
         activeView={activeView}
-        setActiveView={setActiveView}
+        setActiveView={handleNav}
         setSidebarOpen={setSidebarOpen}
         logout={logout}
       />
@@ -181,7 +189,7 @@ export default function Sidebar() {
                   key={item.id}
                   {...item}
                   active={activeView === item.id}
-                  onClick={() => setActiveView(item.id)}
+                  onClick={() => handleNav(item.id)}
                 />
               ))}
             </div>
@@ -217,7 +225,7 @@ export default function Sidebar() {
                 const agentIcon = agents.find(a => a.id === conv.agent)?.icon || '🤖'
                 return (
                   <div key={conv.id}
-                    onClick={() => { setActiveConv(conv.id); setActiveView('chat') }}
+                    onClick={() => { setActiveConv(conv.id); handleNav('chat') }}
                     className={clsx(
                       'group flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all',
                       activeConvId === conv.id
@@ -227,7 +235,7 @@ export default function Sidebar() {
                     <span className="text-[11px] flex-shrink-0">{agentIcon}</span>
                     <span className="flex-1 truncate text-xs">{conv.title}</span>
                     <button
-                      onClick={e => { e.stopPropagation(); deleteConversation(conv.id) }}
+                      onClick={e => { e.stopPropagation(); setDeleteConfirmId(conv.id) }}
                       className="opacity-0 group-hover:opacity-100 text-slate-700 hover:text-red-400 transition-all p-0.5 rounded">
                       <Trash2 size={10}/>
                     </button>
@@ -241,6 +249,24 @@ export default function Sidebar() {
           </div>
         )}
       </div>
+
+      {/* Delete confirmation overlay */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-surface-1 border border-red-500/30 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl animate-fade-in">
+            <div className="text-sm font-semibold text-white mb-4">Delete conversation?</div>
+            <div className="text-xs text-slate-400 mb-6">This cannot be undone.</div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setDeleteConfirmId(null)}
+                className="btn-ghost text-xs">Cancel</button>
+              <button onClick={() => { deleteConversation(deleteConfirmId); setDeleteConfirmId(null) }}
+                className="px-3 py-2 bg-red-500/15 border border-red-500/30 text-red-400 rounded-lg text-xs font-medium hover:bg-red-500/25 transition-all">
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Footer ────────────────────────────────────────────────────────── */}
       <div className="px-3 py-2.5 border-t border-white/5 flex-shrink-0 flex items-center justify-between">

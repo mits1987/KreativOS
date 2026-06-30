@@ -81,7 +81,7 @@ const useStore = create((set, get) => ({
   conversations: JSON.parse(localStorage.getItem('conversations') || '[]'),
   activeConvId:  null,
 
-  createConversation: (title = 'New Chat') => {
+  createConversation: (title = `New Chat ${new Date().toLocaleString()}`) => {
     const id   = `conv_${Date.now()}`
     const conv = {
       id,
