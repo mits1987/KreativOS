@@ -17,11 +17,15 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 # ── Colour palette ────────────────────────────────────────────────────────────
-PURPLE = RGBColor(0x8B, 0x5C, 0xF6)
-WHITE  = RGBColor(0xFF, 0xFF, 0xFF)
-DARK   = RGBColor(0x1E, 0x1E, 0x2E)
-LIGHT  = RGBColor(0xF1, 0xF5, 0xF9)
-ACCENT = RGBColor(0x10, 0xB9, 0x81)
+SLATE   = RGBColor(0xE2, 0xE8, 0xF0)
+MUTED   = RGBColor(0x94, 0xA3, 0xB8)
+PURPLE  = RGBColor(0x8B, 0x5C, 0xF6)
+WHITE   = RGBColor(0xFF, 0xFF, 0xFF)
+DARK    = RGBColor(0x1E, 0x1E, 0x2E)
+DARK2   = RGBColor(0x16, 0x16, 0x28)
+LIGHT   = RGBColor(0xF1, 0xF5, 0xF9)
+ACCENT  = RGBColor(0x10, 0xB9, 0x81)
+TEAL    = RGBColor(0x0D, 0x94, 0x88)
 
 # ── PPTX Generator ────────────────────────────────────────────────────────────
 
@@ -48,12 +52,6 @@ def _text_box(slide, text, x, y, w, h, size=18, bold=False, color=WHITE, align=P
     run.font.size = Pt(size)
     run.font.bold = bold
     run.font.color.rgb = color
-
-SLATE    = RGBColor(0xE2, 0xE8, 0xF0)
-MUTED    = RGBColor(0x94, 0xA3, 0xB8)
-DARK2    = RGBColor(0x16, 0x16, 0x28)
-TEAL     = RGBColor(0x0D, 0x94, 0x88)
-
 
 def _accent_box(slide, x, y, w, h, color=PURPLE, alpha=0x33):
     """Semi-transparent accent rectangle (via solid with custom color)."""

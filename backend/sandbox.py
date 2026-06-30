@@ -120,8 +120,9 @@ def run_sandboxed(
     uid, gid = _get_sandbox_uid_gid()
 
     safe_env = {
-        "PATH":   os.environ.get("PATH", ""),
-        "TMP":    tempfile.gettempdir(),
+        "PATH":           os.environ.get("PATH", ""),
+        "TMP":            tempfile.gettempdir(),
+        "PYTHONHASHSEED": "0",  # ponytail: Python 3.10 rc2 subprocess fails without it on Windows
     }
     if IS_LINUX:
         safe_env["HOME"]   = "/tmp"

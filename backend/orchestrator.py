@@ -29,7 +29,9 @@ def signal_permission(req_id: str, decision: str):
         event.set()
 
 # ── In-session custom agents created by the orchestrator ──────────────────────
-_custom_agents: dict[str, str] = {}
+from collections import OrderedDict
+_custom_agents: OrderedDict[str, str] = OrderedDict(maxlen=100)
+# ponytail: bounded at 100 to prevent memory leak from unbounded agent creation
 
 TOOL_INSTRUCTIONS = """
 ## Tools — use this EXACT format (two consecutive lines):
@@ -247,6 +249,10 @@ async def _run_agent(agent: str, task: str, context: str,
     system = base_system + "\n\n" + TOOL_INSTRUCTIONS + _mcp_hint()
     user_content = task if not context else f"{context}\n\nYour task:\n{task}"
     messages = [{"role": "user", "content": user_content}]
+
+    # ponytail: keep last 10 turns to avoid overflowing model context
+    if len(messages) > 10:
+        messages = [messages[0]] + messages[-9:]  # keep first (original task) + last 9
 
     for _ in range(25):
         response = await _llm(model, messages, system, ollama_url)

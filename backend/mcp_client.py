@@ -5,6 +5,9 @@ from .paths import get_workspace_dir
 
 _CONFIG = get_workspace_dir() / "mcp_servers.json"
 
+# ponytail: shared client to avoid new connection per call
+_HTTP = httpx.AsyncClient(timeout=15)
+
 _DEFAULTS = [
     {
         "name": "open-design",
@@ -35,9 +38,8 @@ def _get_url(name: str) -> str:
 
 async def _rpc(url: str, method: str, params: dict) -> dict:
     try:
-        async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.post(url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
-            r.raise_for_status()
+        r = await _HTTP.post(url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+        r.raise_for_status()
     except (httpx.ConnectError, httpx.TimeoutException) as e:
         raise ConnectionError(f"MCP server unreachable: {e}") from e
     data = r.json()

@@ -107,54 +107,37 @@ export const api = {
     return r.json()
   },
 
-  // ── Streaming chat — NO retry, NO auto-reconnect ───────────────────────────
-  // Retrying a streaming POST would send the message twice.
-  // If the connection drops, the caller shows a "connection lost" indicator.
-  async *streamChat(model, messages, agent, project = '', useWebSearch = false) {
-    const r = await fetch(`${getBase()}/api/chat/stream`, {
-      method:  'POST',
-      headers: getHeaders(),
-      body:    JSON.stringify({
-        model,
-        messages,
-        agent,
-        project,
-        use_web_search: useWebSearch,
-      }),
-    })
-
-    if (!r.ok) {
-      handle401(r)
-      throw new Error(`Stream ${r.status}`)
-    }
-
-    const reader = r.body.getReader()
-    const dec    = new TextDecoder()
-    let   buf    = ''
-
+  // ── Shared SSE reader — yields parsed data events ─────────────────────────
+  async *_sse(response) {
+    const reader = response.body.getReader()
+    const dec = new TextDecoder()
+    let buf = ''
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-
       buf += dec.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() || ''
-
+      const lines = buf.split('\n'); buf = lines.pop() || ''
       for (const line of lines) {
-        // SSE comment keepalive — silently skip
-        if (line.startsWith(': ')) continue
-
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6)
-          if (data === '[DONE]') return
-          try {
-            const p = JSON.parse(data)
-            if (p.content) yield p.content
-          } catch {
-            // malformed chunk — skip
-          }
-        }
+        if (line.startsWith(': ')) continue  // keepalive
+        if (!line.startsWith('data: ')) continue
+        const raw = line.slice(6)
+        if (raw === '[DONE]') return
+        yield raw
       }
+    }
+  },
+
+  // ponytail: 3 streamers → 1 helper + 3 thin wrappers (saves ~45 lines)
+
+  // ── Streaming chat — NO retry, NO auto-reconnect ───────────────────────────
+  async *streamChat(model, messages, agent, project = '', useWebSearch = false) {
+    const r = await fetch(`${getBase()}/api/chat/stream`, {
+      method: 'POST', headers: getHeaders(),
+      body: JSON.stringify({ model, messages, agent, project, use_web_search: useWebSearch }),
+    })
+    if (!r.ok) { handle401(r); throw new Error(`Stream ${r.status}`) }
+    for await (const raw of api._sse(r)) {
+      try { const p = JSON.parse(raw); if (p.content) yield p.content } catch {}
     }
   },
 
@@ -165,20 +148,8 @@ export const api = {
       body: JSON.stringify({ task, model, project }),
     })
     if (!r.ok) { handle401(r); throw new Error(`Orchestrate ${r.status}`) }
-    const reader = r.body.getReader()
-    const dec    = new TextDecoder()
-    let   buf    = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += dec.decode(value, { stream: true })
-      const lines = buf.split('\n'); buf = lines.pop() || ''
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        const raw = line.slice(6)
-        if (raw === '[DONE]') return
-        try { yield JSON.parse(raw) } catch {}
-      }
+    for await (const raw of api._sse(r)) {
+      try { yield JSON.parse(raw) } catch {}
     }
   },
 
@@ -207,20 +178,8 @@ export const api = {
       body: JSON.stringify({ task, model, template, project, skip_ralph }),
     })
     if (!r.ok) { handle401(r); throw new Error(`Pipeline ${r.status}`) }
-    const reader = r.body.getReader()
-    const dec    = new TextDecoder()
-    let   buf    = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += dec.decode(value, { stream: true })
-      const lines = buf.split('\n'); buf = lines.pop() || ''
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        const raw = line.slice(6)
-        if (raw === '[DONE]') return
-        try { yield JSON.parse(raw) } catch {}
-      }
+    for await (const raw of api._sse(r)) {
+      try { yield JSON.parse(raw) } catch {}
     }
   },
 
