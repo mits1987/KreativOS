@@ -5,6 +5,43 @@ import useStore from '../store'
 import api from '../utils/api'
 import MessageRenderer from '../components/MessageRenderer'
 
+const MessageRow = React.memo(({ msg, isLast, isStreaming, thinkingTime, agentInfo }) => (
+  <div className="max-w-3xl mx-auto message-enter mb-6">
+    {msg.role === 'user' ? (
+      <div className="flex justify-end">
+        <div className="max-w-xl bg-surface-3 rounded-2xl rounded-br-sm px-4 py-3 text-sm text-slate-200 border border-white/10">
+          {msg.content}
+        </div>
+      </div>
+    ) : (
+      <div className="flex gap-3">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-base flex-shrink-0 mt-1"
+          style={{ background: (agentInfo?.color || '#6366f1') + '20' }}>
+          {agentInfo?.icon || '🤖'}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-medium" style={{ color: agentInfo?.color || '#6366f1' }}>
+              {agentInfo?.name || 'Assistant'}
+            </span>
+            {isLast && isStreaming && (
+              <span className="text-xs text-slate-500 agent-pulse">
+                {thinkingTime > 5
+                  ? `Model is thinking… ${thinkingTime}s`
+                  : 'thinking…'}
+              </span>
+            )}
+          </div>
+          <MessageRenderer
+            content={msg.content || ''}
+            isStreaming={isLast && isStreaming && !msg.content}
+          />
+        </div>
+      </div>
+    )}
+  </div>
+))
+
 function AgentPicker({ agents, selected, onSelect }) {
   const [open, setOpen] = useState(false)
   const current = agents.find(a => a.id === selected)
@@ -79,6 +116,8 @@ export default function ChatView() {
   const abortRef        = useRef(false)
   const lastChunkRef    = useRef(null)
   const thinkingTimerRef= useRef(null)
+  const streamBufferRef = useRef('')
+  const abortCtrlRef    = useRef(null)
 
   const conv     = conversations.find(c => c.id === activeConvId)
   const messages = conv?.messages || []
@@ -104,7 +143,7 @@ export default function ChatView() {
   useEffect(() => { if (!activeConvId) createConversation() }, [])
 
   // Abort stream on unmount
-  useEffect(() => () => { abortRef.current = true }, [])
+  useEffect(() => () => { abortCtrlRef.current?.abort(); abortRef.current = true }, [])
 
   // Pick up prompts sent from PromptsView via CustomEvent or localStorage
   useEffect(() => {
@@ -153,16 +192,16 @@ export default function ChatView() {
       .map(m => ({ role: m.role, content: m.content }))
 
     try {
-      let full = ''
+      abortCtrlRef.current = new AbortController()
+      const signal = abortCtrlRef.current.signal
       const tick = (chunk) => {
         lastChunkRef.current = Date.now()
-        full += chunk
-        updateLastMessage(convId, full)
+        streamBufferRef.current += chunk
       }
 
       if (selectedAgent === 'orchestrator') {
         const ICONS = { researcher:'🔍', architect:'🏗️', coder:'💻', devops:'⚙️', general:'🤖' }
-        for await (const event of api.streamOrchestrate(content, selectedModel)) {
+        for await (const event of api.streamOrchestrate(content, selectedModel, '', signal)) {
           if (abortRef.current) break
           if      (event.type === 'planning')      tick('🎯 **Planning your task…**\n\n')
           else if (event.type === 'plan') {
@@ -195,16 +234,23 @@ export default function ChatView() {
           else if (event.type === 'error')        tick(`❌ ${event.message}`)
         }
       } else {
-        for await (const chunk of api.streamChat(selectedModel, history, selectedAgent)) {
+        for await (const chunk of api.streamChat(selectedModel, history, selectedAgent, '', false, signal)) {
           if (abortRef.current) break
           tick(chunk)
         }
       }
     } catch (e) {
-      setStreamError('Connection lost — please try sending again.')
-      updateLastMessage(convId, '*(Connection lost. Please resend.)*')
+      if (e?.name !== 'AbortError') {
+        setStreamError('Connection lost — please try sending again.')
+        updateLastMessage(convId, '*(Connection lost. Please resend.)*')
+      }
     } finally {
       setIsStreaming(false)
+      abortCtrlRef.current = null
+      if (streamBufferRef.current) {
+        updateLastMessage(convId, streamBufferRef.current)
+        streamBufferRef.current = ''
+      }
     }
   }, [input, isStreaming, selectedModel, selectedAgent, activeConvId, conversations])
 
@@ -258,40 +304,7 @@ export default function ChatView() {
           const isLast    = i === messages.length - 1
           const agentInfo = agents.find(a => a.id === (msg.agent || selectedAgent))
           return (
-            <div key={msg.id || i} className="max-w-3xl mx-auto message-enter mb-6">
-              {msg.role === 'user' ? (
-                <div className="flex justify-end">
-                  <div className="max-w-xl bg-surface-3 rounded-2xl rounded-br-sm px-4 py-3 text-sm text-slate-200 border border-white/10">
-                    {msg.content}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex gap-3">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center text-base flex-shrink-0 mt-1"
-                    style={{ background: (agentInfo?.color || '#6366f1') + '20' }}>
-                    {agentInfo?.icon || '🤖'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-medium" style={{ color: agentInfo?.color || '#6366f1' }}>
-                        {agentInfo?.name || 'Assistant'}
-                      </span>
-                      {isLast && isStreaming && (
-                        <span className="text-xs text-slate-500 agent-pulse">
-                          {thinkingTime > 5
-                            ? `Model is thinking… ${thinkingTime}s`
-                            : 'thinking…'}
-                        </span>
-                      )}
-                    </div>
-                    <MessageRenderer
-                      content={msg.content || ''}
-                      isStreaming={isLast && isStreaming && !msg.content}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+            <MessageRow key={msg.id || i} msg={msg} isLast={isLast} isStreaming={isStreaming} thinkingTime={thinkingTime} agentInfo={agentInfo} />
           )
         })}
         <div ref={messagesEndRef} />
@@ -329,7 +342,7 @@ export default function ChatView() {
               </div>
               <div className="flex items-center gap-2">
                 {isStreaming ? (
-                  <button onClick={() => { abortRef.current = true; setIsStreaming(false) }}
+                  <button onClick={() => { abortCtrlRef.current?.abort(); abortRef.current = true; setIsStreaming(false) }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg text-xs transition-all">
                     <StopCircle size={13} /> Stop
                   </button>

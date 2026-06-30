@@ -188,6 +188,8 @@ def run_sandboxed(
 
 def run_code_sandboxed(code: str, language: str, timeout: int = DEFAULT_TIMEOUT, workspace_dir: Optional[str] = None) -> dict:
     """Write code to a temp file and execute it sandboxed."""
+    if IS_WINDOWS:
+        logger.warning("Code execution on Windows has no sandbox isolation — runs as server process")
     language = language.lower()
     cmd = LANG_COMMANDS.get(language)
     ext = LANG_EXTENSIONS.get(language, ".txt")

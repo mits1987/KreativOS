@@ -58,7 +58,7 @@ app.add_middleware(
 # ── Environment ────────────────────────────────────────────────────────────────
 state.OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 state.WORKSPACE_DIR = get_workspace_dir()
-AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "false").lower() == "true"
+AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "true").lower() == "true"
 set_auth_required(AUTH_REQUIRED)
 perms.init(state.WORKSPACE_DIR)
 
@@ -147,6 +147,13 @@ def reinit_workspace():
     perms.init(state.WORKSPACE_DIR)
     init_services()
     state.START_TIME = _get_start_time()
+    from collections import defaultdict
+    state.stats = {
+        "total_messages": 0, "total_tasks": 0, "ralph_loops_run": 0,
+        "ralph_fixes_applied": 0, "files_created": 0, "code_executions": 0,
+        "pipelines_run": 0, "searches_run": 0, "start_time": state.START_TIME,
+        "tasks_by_agent": defaultdict(int), "recent_activity": [],
+    }
 
 
 # ── SPA static serving (API routes take priority — this is last) ──────────────

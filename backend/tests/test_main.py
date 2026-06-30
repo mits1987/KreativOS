@@ -1,5 +1,5 @@
-"""
-KreativOS — Backend Test Suite
+﻿"""
+KreativOS â€” Backend Test Suite
 Tests all major API endpoints without requiring Ollama running.
 Run: pytest tests/ -v
 """
@@ -10,7 +10,7 @@ from pathlib import Path
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-# ── Health ─────────────────────────────────────────────────────────────────────
+# â”€â”€ Health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @pytest.mark.asyncio
 async def test_health_returns_ok(client):
     r = await client.get("/api/health")
@@ -26,7 +26,7 @@ async def test_health_ollama_disconnected(client):
     assert r.status_code == 200
     assert r.json()["ollama"] in ("connected", "disconnected")
 
-# ── Models & Agents ────────────────────────────────────────────────────────────
+# â”€â”€ Models & Agents â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @pytest.mark.asyncio
 async def test_agents_returns_list(client):
     r = await client.get("/api/agents")
@@ -48,7 +48,7 @@ async def test_models_ollama_unreachable(client):
     except Exception:
         pass  # Connection error is also acceptable in test env
 
-# ── Dashboard ──────────────────────────────────────────────────────────────────
+# â”€â”€ Dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @pytest.mark.asyncio
 async def test_dashboard_returns_stats(client):
     r = await client.get("/api/dashboard")
@@ -61,7 +61,7 @@ async def test_dashboard_returns_stats(client):
     assert "total_tasks" in stats
     assert "ralph_loops_run" in stats
 
-# ── Files ──────────────────────────────────────────────────────────────────────
+# â”€â”€ Files â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @pytest.mark.asyncio
 async def test_write_and_read_file(client, tmp_workspace):
     r = await client.post("/api/files/write", json={"filename": "test.txt", "content": "hello world"})
@@ -95,7 +95,7 @@ async def test_read_nonexistent_file(client):
     r = await client.get("/api/files/read/does_not_exist.txt")
     assert r.status_code == 404
 
-# ── Code Execution ─────────────────────────────────────────────────────────────
+# â”€â”€ Code Execution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @pytest.mark.asyncio
 async def test_execute_python(client, tmp_workspace):
     r = await client.post("/api/execute", json={"code": "print('hello')", "language": "python"})
@@ -126,10 +126,12 @@ async def test_execute_timeout(client, tmp_workspace):
     assert r.status_code == 200
     assert r.json()["success"] is False
 
-# ── Auth ───────────────────────────────────────────────────────────────────────
+# â”€â”€ Auth â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @pytest.mark.asyncio
 async def test_login_default_admin(client, tmp_workspace):
-    r = await client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+    from backend import state
+    pw = state.auth._first_boot_password
+    r = await client.post("/api/auth/login", json={"username": "admin", "password": pw})
     assert r.status_code == 200
     assert "token" in r.json()
 
@@ -156,7 +158,7 @@ async def test_cannot_delete_admin(client, tmp_workspace):
     r = await client.delete("/api/auth/users/admin")
     assert r.status_code == 400
 
-# ── Memory ─────────────────────────────────────────────────────────────────────
+# â”€â”€ Memory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @pytest.mark.asyncio
 async def test_memory_create_and_get(client, tmp_workspace):
     r = await client.get("/api/memory/myproject")
@@ -183,7 +185,7 @@ async def test_memory_delete(client, tmp_workspace):
     r = await client.delete("/api/memory/todelete")
     assert r.status_code == 200
 
-# ── Scheduler ──────────────────────────────────────────────────────────────────
+# â”€â”€ Scheduler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @pytest.mark.asyncio
 async def test_scheduler_create_and_list(client, tmp_workspace):
     r = await client.post("/api/scheduler/tasks", json={
@@ -217,7 +219,7 @@ async def test_scheduler_delete(client, tmp_workspace):
     r = await client.delete(f"/api/scheduler/tasks/{task_id}")
     assert r.status_code == 200
 
-# ── Pipeline templates ─────────────────────────────────────────────────────────
+# â”€â”€ Pipeline templates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @pytest.mark.asyncio
 async def test_pipeline_templates(client):
     r = await client.get("/api/pipeline/templates")
@@ -226,7 +228,7 @@ async def test_pipeline_templates(client):
     assert "full_app" in templates
     assert "research_build" in templates
 
-# ── Canvas workflows ───────────────────────────────────────────────────────────
+# â”€â”€ Canvas workflows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @pytest.mark.asyncio
 async def test_canvas_save_and_list(client, tmp_workspace):
     r = await client.post("/api/canvas/workflows", json={
@@ -250,7 +252,7 @@ async def test_canvas_delete_workflow(client, tmp_workspace):
     r = await client.delete(f"/api/canvas/workflows/{wf_id}")
     assert r.status_code == 200
 
-# ── Memory module unit tests ───────────────────────────────────────────────────
+# â”€â”€ Memory module unit tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def test_memory_build_context(tmp_path):
     from memory import ProjectMemory
     m = ProjectMemory(tmp_path)
@@ -278,7 +280,7 @@ def test_scheduler_calc_next(tmp_path):
 def test_auth_hash_consistency(tmp_path):
     from auth import AuthManager
     a = AuthManager(tmp_path)
-    token1 = a.login("admin", "admin123")
+    token1 = a.login("admin", a._first_boot_password)
     assert token1 is not None
     token2 = a.login("admin", "wrongpass")
     assert token2 is None
@@ -289,3 +291,4 @@ def test_websearch_format(tmp_path):
     fmt = format_results_for_agent("test query", results)
     assert "test query" in fmt
     assert "Test" in fmt
+

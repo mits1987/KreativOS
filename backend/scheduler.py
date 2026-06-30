@@ -21,12 +21,14 @@ class TaskScheduler:
         if not self.path.exists():
             return []
         try:
-            return json.loads(self.path.read_text())
+            return json.loads(self.path.read_text(encoding="utf-8"))
         except Exception:
             return []
 
     def _save(self, tasks: list):
-        self.path.write_text(json.dumps(tasks, indent=2))
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(tasks, indent=2), encoding="utf-8")
+        tmp.replace(self.path)
 
     # ── Public API ─────────────────────────────────────────────────────────────
     def list_tasks(self) -> list:

@@ -1,5 +1,6 @@
 """KreativOS — MCP client + server config."""
 import json
+from urllib.parse import urlparse
 import httpx
 from .paths import get_workspace_dir
 
@@ -36,7 +37,18 @@ def _get_url(name: str) -> str:
     return server["url"]
 
 
+def _validate_mcp_url(url: str):
+    p = urlparse(url)
+    if p.scheme not in ("http", "https"):
+        raise ValueError("MCP URL must be http or https")
+    host = p.hostname or ""
+    blocked = {"169.254.169.254", "metadata.google.internal"}
+    if host in blocked or host.startswith("169.254."):
+        raise ValueError("Blocked host")
+
+
 async def _rpc(url: str, method: str, params: dict) -> dict:
+    _validate_mcp_url(url)
     try:
         r = await _HTTP.post(url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
         r.raise_for_status()

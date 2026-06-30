@@ -40,38 +40,37 @@ async def stream_ollama(
     }
     last_chunk_time = asyncio.get_running_loop().time()
     last_err = None
-    for attempt in range(_RETRIES + 1):
-        try:
-            client = httpx.AsyncClient(timeout=300)
-            resp = await client.stream("POST", f"{state.OLLAMA_BASE_URL}/api/chat", json=payload)
-            resp.raise_for_status()
-            break
-        except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError) as e:
-            last_err = e
-            await client.aclose()
-            if attempt < _RETRIES:
-                await asyncio.sleep((attempt + 1) * 0.5)
-    if last_err and attempt == _RETRIES:
-        raise last_err
-    async with resp:
-        async for line in resp.aiter_lines():
-            now = asyncio.get_running_loop().time()
-            if now - last_chunk_time > KEEPALIVE_INTERVAL:
-                yield ""
-                last_chunk_time = now
-            if not line.strip():
-                continue
+    async with httpx.AsyncClient(timeout=300) as client:
+        for attempt in range(_RETRIES + 1):
             try:
-                d = json.loads(line)
-                if "message" in d and "content" in d["message"]:
-                    chunk = d["message"]["content"]
-                    if chunk:
-                        last_chunk_time = now
-                        yield chunk
-                if d.get("done"):
-                    break
-            except Exception:
-                continue
+                resp = await client.stream("POST", f"{state.OLLAMA_BASE_URL}/api/chat", json=payload)
+                resp.raise_for_status()
+                break
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError) as e:
+                last_err = e
+                if attempt < _RETRIES:
+                    await asyncio.sleep((attempt + 1) * 0.5)
+        if last_err and attempt == _RETRIES:
+            raise last_err
+        async with resp:
+            async for line in resp.aiter_lines():
+                now = asyncio.get_running_loop().time()
+                if now - last_chunk_time > KEEPALIVE_INTERVAL:
+                    yield ""
+                    last_chunk_time = now
+                if not line.strip():
+                    continue
+                try:
+                    d = json.loads(line)
+                    if "message" in d and "content" in d["message"]:
+                        chunk = d["message"]["content"]
+                        if chunk:
+                            last_chunk_time = now
+                            yield chunk
+                    if d.get("done"):
+                        break
+                except Exception:
+                    continue
 
 
 async def call_ollama(model: str, messages: list, system: str) -> str:

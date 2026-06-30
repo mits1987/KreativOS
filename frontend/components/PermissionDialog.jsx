@@ -30,7 +30,7 @@ export default function PermissionDialog() {
               <p className="text-xs text-slate-500">An agent wants to access this path</p>
             </div>
           </div>
-          <button onClick={() => setPermissionDialog(null)}
+          <button onClick={() => handleDecision('deny')}
             className="text-slate-500 hover:text-white transition-colors">
             <X size={16} />
           </button>

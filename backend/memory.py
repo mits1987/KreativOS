@@ -38,13 +38,16 @@ class ProjectMemory:
         if not p.exists():
             return self._default(project)
         try:
-            return json.loads(p.read_text())
+            return json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             return self._default(project)
 
     def _save(self, project: str, data: dict):
         data["updated"] = datetime.now().isoformat()
-        self._path(project).write_text(json.dumps(data, indent=2))
+        p = self._path(project)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tmp.replace(p)
 
     # ── Public API (all operations hold the lock) ──────────────────────────────
     def list_projects(self, limit: int = 50, offset: int = 0) -> list[str]:

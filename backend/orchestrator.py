@@ -30,7 +30,8 @@ def signal_permission(req_id: str, decision: str):
 
 # ── In-session custom agents created by the orchestrator ──────────────────────
 from collections import OrderedDict
-_custom_agents: OrderedDict[str, str] = OrderedDict(maxlen=100)
+_custom_agents: OrderedDict[str, str] = OrderedDict()
+MAX_CUSTOM_AGENTS = 100
 # ponytail: bounded at 100 to prevent memory leak from unbounded agent creation
 
 TOOL_INSTRUCTIONS = """
@@ -176,7 +177,7 @@ async def _exec_tool(name: str, args: dict, workspace_dir: Path) -> str:
 
         elif name == "execute_code":
             result = await asyncio.to_thread(
-                run_code_sandboxed, args.get("code", ""), args.get("language", "python")
+                run_code_sandboxed, args.get("code", ""), args.get("language", "python"), workspace_dir=str(workspace_dir)
             )
             out = (result.get("stdout") or "").strip()
             err = (result.get("stderr") or "").strip()
@@ -250,10 +251,6 @@ async def _run_agent(agent: str, task: str, context: str,
     user_content = task if not context else f"{context}\n\nYour task:\n{task}"
     messages = [{"role": "user", "content": user_content}]
 
-    # ponytail: keep last 10 turns to avoid overflowing model context
-    if len(messages) > 10:
-        messages = [messages[0]] + messages[-9:]  # keep first (original task) + last 9
-
     for _ in range(25):
         response = await _llm(model, messages, system, ollama_url)
         matches  = list(TOOL_RE.finditer(response))
@@ -277,6 +274,9 @@ async def _run_agent(agent: str, task: str, context: str,
         yield {"type": "tool_result", "tool": fn_name, "result": result[:600]}
         messages.append({"role": "assistant", "content": response})
         messages.append({"role": "user",      "content": f"Tool result:\n{result}\n\nContinue."})
+        # ponytail: keep last 10 turns to avoid overflowing model context
+        if len(messages) > 10:
+            messages = [messages[0]] + messages[-9:]
 
     yield {"type": "agent_output", "content": response}
 
@@ -303,23 +303,28 @@ async def _run_to_queue(step: dict, context: str, model: str,
     # Register custom agent for future rounds
     if custom and agent not in AGENT_SYSTEMS:
         _custom_agents[agent] = custom
+        if len(_custom_agents) > MAX_CUSTOM_AGENTS:
+            _custom_agents.popitem(last=False)  # evict oldest
 
-    output = ""
-    async for event in _run_agent(agent, task, context, model, workspace_dir, ollama_url, custom):
-        if event["type"] == "agent_output":
-            output = event["content"]
-        await queue.put(event)
+    try:
+        output = ""
+        async for event in _run_agent(agent, task, context, model, workspace_dir, ollama_url, custom):
+            if event["type"] == "agent_output":
+                output = event["content"]
+            await queue.put(event)
 
-    outputs[agent] = output
+        outputs[agent] = output
 
-    # Self-score
-    score = await _self_score(agent, task, output, model, ollama_url)
-    await queue.put({
-        "type":   "agent_done",
-        "agent":  agent,
-        "output": output,
-        "score":  score,
-    })
+        # Self-score
+        score = await _self_score(agent, task, output, model, ollama_url)
+        await queue.put({
+            "type":   "agent_done",
+            "agent":  agent,
+            "output": output,
+            "score":  score,
+        })
+    except Exception as e:
+        await queue.put({"type": "agent_done", "agent": agent, "output": f"Error: {e}", "score": None})
 
 
 async def orchestrate(task: str, model: str, project: str,
@@ -369,17 +374,17 @@ async def orchestrate(task: str, model: str, project: str,
         ]
 
         finished = 0
-        while finished < len(steps):
-            event = await queue.get()
-            if event["type"] == "agent_done":
-                finished += 1
-                all_outputs[event["agent"]] = event["output"]
-            yield event
-
-        # Ensure tasks are done (they should be, but cancel stale ones)
-        for t in worker_tasks:
-            if not t.done():
-                t.cancel()
+        try:
+            while finished < len(steps):
+                event = await queue.get()
+                if event["type"] == "agent_done":
+                    finished += 1
+                    all_outputs[event["agent"]] = event["output"]
+                yield event
+        finally:
+            for t in worker_tasks:
+                if not t.done():
+                    t.cancel()
 
         # 3. Audit
         yield {"type": "audit_start", "round": round_num}

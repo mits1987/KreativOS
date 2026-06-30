@@ -25,6 +25,9 @@ from ..pipeline import PIPELINE_TEMPLATES, run_pipeline
 from ..sandbox import run_code_sandboxed
 from ..web_search import duckduckgo_search, format_results_for_agent
 from .. import permissions as perms
+from ..auth import AUTH_REQUIRED
+
+_PROTECTED = {".memory", ".auth", ".scheduler", ".workflows", ".backups", ".skill_eval", ".audit"}
 
 router = APIRouter(tags=["chat"])
 limiter = Limiter(key_func=get_remote_address)
@@ -158,6 +161,8 @@ async def write_file(req: FileWriteRequest, current_user: dict = Depends(get_cur
 
 @router.get("/api/files/read/{filename:path}")
 async def read_file(filename: str, current_user: dict = Depends(get_current_user)):
+    if any(p in filename for p in _PROTECTED):
+        raise HTTPException(403, "Protected path")
     from pathlib import Path as _Path
     raw = filename
     fp = _Path(state.WORKSPACE_DIR / raw).expanduser().resolve()
@@ -170,7 +175,10 @@ async def read_file(filename: str, current_user: dict = Depends(get_current_user
 
 
 @router.delete("/api/files/delete/{filename:path}")
-async def delete_file(filename: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def delete_file(request: Request, filename: str, current_user: dict = Depends(get_current_user)):
+    if any(p in filename for p in _PROTECTED):
+        raise HTTPException(403, "Protected path")
     from pathlib import Path as _Path
     raw = filename
     fp = _Path(state.WORKSPACE_DIR / raw).expanduser().resolve()
@@ -596,7 +604,8 @@ async def mcp_list(current_user: dict = Depends(get_current_user)):
 
 @router.post("/api/mcp/servers")
 async def mcp_add(req: McpServerRequest, current_user: dict = Depends(get_current_user)):
-    from ..mcp_client import load_servers as _ls, save_servers as _ss
+    from ..mcp_client import load_servers as _ls, save_servers as _ss, _validate_mcp_url
+    _validate_mcp_url(req.url)
     servers = _ls()
     if any(s["name"] == req.name for s in servers):
         raise HTTPException(400, "Server name already exists")
@@ -626,7 +635,8 @@ async def mcp_tools(name: str, current_user: dict = Depends(get_current_user)):
 
 
 @router.post("/api/mcp/call")
-async def mcp_call(req: McpCallRequest, current_user: dict = Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def mcp_call(request: Request, req: McpCallRequest, current_user: dict = Depends(get_current_user)):
     from ..mcp_client import call_tool as _ct
     try:
         result = await _ct(req.server, req.tool, req.args)
@@ -637,7 +647,8 @@ async def mcp_call(req: McpCallRequest, current_user: dict = Depends(get_current
 
 # ── Backup ────────────────────────────────────────────────────────────────────
 @router.post("/api/backup/create")
-async def create_backup(current_user: dict = Depends(get_current_user)):
+@limiter.limit("3/hour")
+async def create_backup(request: Request, current_user: dict = Depends(get_current_user)):
     if state.audit_log:
         state.audit_log.log("backup_create")
     state.track("backup", "Creating backup…")
@@ -656,8 +667,9 @@ async def list_backups(current_user: dict = Depends(get_current_user)):
 async def download_backup(filename: str, current_user: dict = Depends(get_current_user)):
     if not filename.startswith("kreavitos_backup_") or not filename.endswith(".tar.gz"):
         raise HTTPException(400, "Invalid backup filename")
-    from pathlib import Path as _Path
-    fp = _Path(state.WORKSPACE_DIR) / ".backups" / filename
+    fp = (Path(state.WORKSPACE_DIR) / ".backups" / filename).resolve()
+    if not str(fp).startswith(str((Path(state.WORKSPACE_DIR) / ".backups").resolve())):
+        raise HTTPException(400, "Invalid path")
     if not fp.exists():
         raise HTTPException(404, "Backup not found")
     return FileResponse(str(fp), media_type="application/gzip", filename=filename)
@@ -665,6 +677,9 @@ async def download_backup(filename: str, current_user: dict = Depends(get_curren
 
 @router.delete("/api/backup/{filename}")
 async def delete_backup(filename: str, current_user: dict = Depends(get_current_user)):
+    fp = (Path(state.WORKSPACE_DIR) / ".backups" / filename).resolve()
+    if not str(fp).startswith(str((Path(state.WORKSPACE_DIR) / ".backups").resolve())):
+        raise HTTPException(400, "Invalid path")
     ok = backup_mod.delete_backup(filename)
     if not ok:
         raise HTTPException(404, "Backup not found")
@@ -674,7 +689,11 @@ async def delete_backup(filename: str, current_user: dict = Depends(get_current_
 
 
 @router.post("/api/backup/restore/{filename}")
-async def restore_backup(filename: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit("3/hour")
+async def restore_backup(request: Request, filename: str, current_user: dict = Depends(get_current_user)):
+    fp = (Path(state.WORKSPACE_DIR) / ".backups" / filename).resolve()
+    if not str(fp).startswith(str((Path(state.WORKSPACE_DIR) / ".backups").resolve())):
+        raise HTTPException(400, "Invalid path")
     if state.audit_log:
         state.audit_log.log("backup_restore", filename)
     ok = backup_mod.restore_backup(filename, state.WORKSPACE_DIR)
@@ -834,7 +853,7 @@ from fastapi import WebSocket as _WS, WebSocketDisconnect as _WSDisconnect
 @router.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: _WS, session_id: str, token: str = ""):
     token = websocket.query_params.get("token", "")
-    if not token or not state.auth or not state.auth.verify(token):
+    if AUTH_REQUIRED and (not token or not state.auth or not state.auth.verify(token)):
         await websocket.close(code=4001)
         return
     await websocket.accept()

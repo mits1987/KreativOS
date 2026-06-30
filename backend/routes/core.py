@@ -161,6 +161,8 @@ async def list_users(current_user: dict = Depends(get_current_user)):
 
 @router.post("/api/auth/users")
 async def create_user(req: CreateUserRequest, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(403, "Admin only")
     ok = state.auth.create_user(req.username, req.password, req.role) if state.auth else False
     if not ok:
         raise HTTPException(400, "Username already exists")
@@ -169,6 +171,8 @@ async def create_user(req: CreateUserRequest, current_user: dict = Depends(get_c
 
 @router.delete("/api/auth/users/{username}")
 async def delete_user(username: str, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(403, "Admin only")
     ok = state.auth.delete_user(username) if state.auth else False
     if not ok:
         raise HTTPException(400, "Cannot delete this user")

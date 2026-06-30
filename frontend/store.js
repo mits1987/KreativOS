@@ -79,7 +79,7 @@ const useStore = create((set, get) => ({
 
   // ── Conversations ──────────────────────────────────────────────────────────
   conversations: JSON.parse(localStorage.getItem('conversations') || '[]'),
-  activeConvId:  null,
+  activeConvId:  localStorage.getItem('activeConvId') || null,
 
   createConversation: (title = `New Chat ${new Date().toLocaleString()}`) => {
     const id   = `conv_${Date.now()}`
@@ -93,6 +93,7 @@ const useStore = create((set, get) => ({
     }
     const convs = [conv, ...get().conversations]
     localStorage.setItem('conversations', JSON.stringify(convs))
+    localStorage.setItem('activeConvId', id)
     set({ conversations: convs, activeConvId: id })
     return id
   },
@@ -102,7 +103,10 @@ const useStore = create((set, get) => ({
     return conversations.find(c => c.id === activeConvId)
   },
 
-  setActiveConv: (id) => set({ activeConvId: id }),
+  setActiveConv: (id) => {
+    localStorage.setItem('activeConvId', id)
+    set({ activeConvId: id })
+  },
 
   addMessage: (convId, message) => {
     const convs = get().conversations.map(c => {
@@ -143,7 +147,9 @@ const useStore = create((set, get) => ({
       }
       return { ...c, messages }
     })
-    localStorage.setItem('conversations', JSON.stringify(convs))
+    if (!get().isStreaming) {
+      localStorage.setItem('conversations', JSON.stringify(convs))
+    }
     set({ conversations: convs })
   },
 
@@ -152,11 +158,13 @@ const useStore = create((set, get) => ({
     const activeConvId =
       get().activeConvId === id ? (convs[0]?.id || null) : get().activeConvId
     localStorage.setItem('conversations', JSON.stringify(convs))
+    localStorage.setItem('activeConvId', activeConvId)
     set({ conversations: convs, activeConvId })
   },
 
   clearConversations: () => {
     localStorage.setItem('conversations', '[]')
+    localStorage.removeItem('activeConvId')
     set({ conversations: [], activeConvId: null })
   },
 

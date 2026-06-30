@@ -6,9 +6,6 @@ import DashboardView  from './pages/DashboardView'
 import ChatView       from './pages/ChatView'
 import TasksView      from './pages/TasksView'
 import PipelineView   from './pages/PipelineView'
-import CanvasView     from './pages/CanvasView'
-import AppBuilderView    from './pages/AppBuilderView'
-import OfficeView     from './pages/OfficeView'
 import FilesView      from './pages/FilesView'
 import MemoryView     from './pages/MemoryView'
 import SkillsView     from './pages/SkillsView'
@@ -18,9 +15,13 @@ import SchedulerView  from './pages/SchedulerView'
 import PromptsView    from './pages/PromptsView'
 import AuditView      from './pages/AuditView'
 import BackupView     from './pages/BackupView'
-import TelegramView   from './pages/TelegramView'
 import UsersView      from './pages/UsersView'
 import SettingsView   from './pages/SettingsView'
+
+const CanvasView       = React.lazy(() => import('./pages/CanvasView'))
+const AppBuilderView   = React.lazy(() => import('./pages/AppBuilderView'))
+const OfficeView       = React.lazy(() => import('./pages/OfficeView'))
+const TelegramView     = React.lazy(() => import('./pages/TelegramView'))
 import useStore from './store'
 import api from './utils/api'
 import PermissionDialog from './components/PermissionDialog'
@@ -135,7 +136,8 @@ export default function App() {
       try {
         const data = await api.pendingPermissions()
         setPendingPermissions(data.pending || [])
-        if (data.pending?.length > 0 && !permissionDialog) {
+        const { permissionDialog: fresh } = useStore.getState()
+        if (data.pending?.length > 0 && !fresh) {
           setPermissionDialog(data.pending[0])
         }
       } catch { /* poll errors are expected when no permissions pending */ }
@@ -229,7 +231,9 @@ export default function App() {
 
           {/* Current view */}
           <ErrorBoundary>
-            {VIEWS[activeView] ?? <DashboardView />}
+            <React.Suspense fallback={<div className="p-8 text-zinc-400">Loading…</div>}>
+              {VIEWS[activeView] ?? <DashboardView />}
+            </React.Suspense>
           </ErrorBoundary>
 
           {/* PWA install prompt */}

@@ -130,10 +130,11 @@ export const api = {
   // ponytail: 3 streamers → 1 helper + 3 thin wrappers (saves ~45 lines)
 
   // ── Streaming chat — NO retry, NO auto-reconnect ───────────────────────────
-  async *streamChat(model, messages, agent, project = '', useWebSearch = false) {
+  async *streamChat(model, messages, agent, project = '', useWebSearch = false, signal = undefined) {
     const r = await fetch(`${getBase()}/api/chat/stream`, {
       method: 'POST', headers: getHeaders(),
       body: JSON.stringify({ model, messages, agent, project, use_web_search: useWebSearch }),
+      signal,
     })
     if (!r.ok) { handle401(r); throw new Error(`Stream ${r.status}`) }
     for await (const raw of api._sse(r)) {
@@ -142,10 +143,11 @@ export const api = {
   },
 
   // ── Orchestrator — streaming SSE ─────────────────────────────────────────
-  async *streamOrchestrate(task, model, project = '') {
+  async *streamOrchestrate(task, model, project = '', signal = undefined) {
     const r = await fetch(`${getBase()}/api/orchestrate`, {
       method: 'POST', headers: getHeaders(),
       body: JSON.stringify({ task, model, project }),
+      signal,
     })
     if (!r.ok) { handle401(r); throw new Error(`Orchestrate ${r.status}`) }
     for await (const raw of api._sse(r)) {
@@ -172,10 +174,11 @@ export const api = {
 
   // Pipeline — streaming SSE
   pipelineTemplates: () => api.get('/api/pipeline/templates'),
-  async *streamPipeline(task, model, template, project = '', skip_ralph = false) {
+  async *streamPipeline(task, model, template, project = '', skip_ralph = false, signal = undefined) {
     const r = await fetch(`${getBase()}/api/pipeline/run`, {
       method: 'POST', headers: getHeaders(),
       body: JSON.stringify({ task, model, template, project, skip_ralph }),
+      signal,
     })
     if (!r.ok) { handle401(r); throw new Error(`Pipeline ${r.status}`) }
     for await (const raw of api._sse(r)) {

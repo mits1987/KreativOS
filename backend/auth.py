@@ -1,4 +1,4 @@
-"""
+﻿"""
 KreativOS — Auth Manager (Phase 0 Fixed)
 
 Two-part fix applied:
@@ -6,6 +6,7 @@ Two-part fix applied:
   2. All sensitive routes must inject Depends(get_current_user).
   3. Expired token cleanup background task added.
   4. AUTH_REQUIRED=false still works by skipping the middleware entirely.
+  (Sprint 1) Randomised admin password on first boot.
 """
 import json
 import logging
@@ -51,12 +52,20 @@ class AuthManager:
     def _ensure_admin(self):
         users = self._load()
         if not users:
+            password = secrets.token_urlsafe(16)
             users["admin"] = {
-                "password": self._hash("admin123"),
+                "password": self._hash(password),
                 "role":     "admin",
                 "created":  datetime.now().isoformat(),
             }
             self._save(users)
+            # Persist the plaintext first-boot password alongside the hash
+            # so it survives re-init (and is available for tests).
+            self.path.parent.joinpath(".first_boot_password").write_text(password)
+            logger.warning("FIRST BOOT: admin password is %s — change immediately", password)
+        # Load persisted first-boot password (may be None if already changed)
+        boot_pw = self.path.parent / ".first_boot_password"
+        self._first_boot_password = boot_pw.read_text().strip() if boot_pw.exists() else None
 
     # ── Token management ───────────────────────────────────────────────────────
     def login(self, username: str, password: str) -> Optional[str]:
@@ -118,6 +127,7 @@ class AuthManager:
         del users[username]
         self._save(users)
         return True
+
 
 # ── Module-level singleton (set by main.py after init) ────────────────────────
 _auth_manager: Optional[AuthManager] = None
@@ -181,5 +191,3 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         )
 
     return user
-
-
