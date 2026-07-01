@@ -188,9 +188,12 @@ app.include_router(hub_router)
 
 # Lazy import routes after services are initialized (avoids circular dependency
 # on state before it's set up)
-from .routes import core_router, chat_router
+from .routes import core_router, chat_router, conversations_router, knowledge_router, github_router
 app.include_router(core_router)
 app.include_router(chat_router)
+app.include_router(conversations_router)
+app.include_router(knowledge_router)
+app.include_router(github_router)
 
 
 # ── Test helper ────────────────────────────────────────────────────────────────

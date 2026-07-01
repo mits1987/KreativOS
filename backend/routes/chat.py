@@ -15,7 +15,6 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from .. import state
-from .. import conversations
 from .. import run_history
 from .. import backup as backup_mod
 from ..config import AGENT_SYSTEMS, AGENT_PERSONAS, get_skills_for_agent
@@ -29,8 +28,6 @@ from ..pipeline import get_all_templates, save_user_template, delete_user_templa
 from ..sandbox import run_code_sandboxed
 from ..web_search import duckduckgo_search, format_results_for_agent
 from ..telegram_utils import send_telegram_artifact
-from .. import github_client as gh
-from .. import knowledge
 from .. import permissions as perms
 from ..auth import AUTH_REQUIRED
 
@@ -281,51 +278,6 @@ async def chat_stream(request: Request, req: ChatRequest, current_user: dict = D
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
-# ── Conversations (SQLite persistence) ────────────────────────────────────────
-@router.get("/api/conversations")
-async def list_convs(limit: int = 50, offset: int = 0):
-    return conversations.list_conversations(state.WORKSPACE_DIR, limit, offset)
-
-
-@router.get("/api/conversations/search")
-async def search_convs(q: str = "", limit: int = 20):
-    if not q:
-        return []
-    return conversations.search_conversations(state.WORKSPACE_DIR, q, limit)
-
-
-@router.get("/api/conversations/{conv_id}")
-async def get_conv(conv_id: str):
-    conv = conversations.get_conversation(state.WORKSPACE_DIR, conv_id)
-    if not conv:
-        raise HTTPException(404, "Conversation not found")
-    return conv
-
-
-@router.post("/api/conversations")
-async def create_conv(data: dict):
-    return conversations.create_conversation(
-        state.WORKSPACE_DIR,
-        title=data.get("title", "New Chat"),
-        model=data.get("model", "")
-    )
-
-
-@router.post("/api/conversations/{conv_id}/messages")
-async def add_msg(conv_id: str, data: dict):
-    return conversations.add_message(
-        state.WORKSPACE_DIR, conv_id,
-        data.get("role", "user"),
-        data.get("content", "")
-    )
-
-
-@router.delete("/api/conversations/{conv_id}")
-async def delete_conv(conv_id: str):
-    ok = conversations.delete_conversation(state.WORKSPACE_DIR, conv_id)
-    if not ok:
-        raise HTTPException(404, "Conversation not found")
-    return {"ok": True}
 
 
 # ── Tasks ─────────────────────────────────────────────────────────────────────
@@ -431,11 +383,11 @@ async def cancel_task(task_id: str, current_user: dict = Depends(get_current_use
 
 # ── Run History ────────────────────────────────────────────────────────────────
 @router.get("/api/runs")
-async def list_runs(limit: int = 50, conv_id: str = None):
+async def list_runs(limit: int = 50, conv_id: str = None, current_user: dict = Depends(get_current_user)):
     return run_history.get_recent_runs(limit=limit, conv_id=conv_id)
 
 @router.get("/api/runs/stats")
-async def run_stats():
+async def run_stats(current_user: dict = Depends(get_current_user)):
     return run_history.get_run_stats()
 
 
@@ -585,21 +537,7 @@ async def delete_memory(project: str, current_user: dict = Depends(get_current_u
     return {"success": True}
 
 
-# ── GitHub ────────────────────────────────────────────────────────────────────
-@router.get("/api/github/repos")
-async def github_list_repos():
-    repos = await gh.list_repos()
-    return repos
 
-@router.post("/api/github/issues")
-async def github_create_issue(data: dict):
-    result = await gh.create_issue(data["owner"], data["repo"], data["title"], data.get("body", ""), data.get("labels"))
-    return result
-
-@router.post("/api/github/commit")
-async def github_commit_file(data: dict):
-    result = await gh.commit_file(data["owner"], data["repo"], data["path"], data["content"], data["message"], data.get("branch", "main"))
-    return result
 
 
 # ── Web Search ────────────────────────────────────────────────────────────────
@@ -611,40 +549,7 @@ async def web_search(q: str, max_results: int = 5, current_user: dict = Depends(
     return {"query": q, "results": results}
 
 
-# ── Knowledge / RAG ──────────────────────────────────────────────────────────
-@router.post("/api/knowledge/upload")
-async def upload_document(request: Request):
-    import tempfile
-    form = await request.form()
-    file = form.get("file")
-    if not file:
-        raise HTTPException(400, "No file provided")
-    content = await file.read()
-    suffix = Path(file.filename).suffix or ".txt"
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    tmp.write(content)
-    tmp.close()
-    result = knowledge.ingest_document(state.WORKSPACE_DIR, Path(tmp.name))
-    os.unlink(tmp.name)
-    return result
 
-
-@router.get("/api/knowledge/search")
-async def search_knowledge_route(q: str = "", top_k: int = 5):
-    return knowledge.search_knowledge(state.WORKSPACE_DIR, q, top_k)
-
-
-@router.get("/api/knowledge/documents")
-async def list_knowledge_docs():
-    return knowledge.list_documents(state.WORKSPACE_DIR)
-
-
-@router.delete("/api/knowledge/documents/{doc_id}")
-async def delete_knowledge_doc(doc_id: str):
-    ok = knowledge.delete_document(state.WORKSPACE_DIR, doc_id)
-    if not ok:
-        raise HTTPException(404, "Document not found")
-    return {"ok": True}
 
 
 # ── App Builder ───────────────────────────────────────────────────────────────

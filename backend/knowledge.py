@@ -19,12 +19,13 @@ EMBED_MODEL = "nomic-embed-text"
 CHUNK_SIZE = 512
 CHUNK_OVERLAP = 64
 
-def _get_embeddings(texts: list[str]) -> list[list[float]]:
+async def _get_embeddings(texts: list[str]) -> list[list[float]]:
     try:
-        resp = httpx.post(OLLAMA_EMBED_URL, json={"model": EMBED_MODEL, "input": texts}, timeout=60)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("embeddings", [])
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(OLLAMA_EMBED_URL, json={"model": EMBED_MODEL, "input": texts})
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("embeddings", [])
     except Exception as e:
         print(f"Embedding error: {e}")
         return []
@@ -66,7 +67,7 @@ def _save_index(workspace_dir: Path, index: dict):
     tmp.write_text(json.dumps(index, indent=2), encoding="utf-8")
     tmp.replace(idx_path)
 
-def ingest_document(workspace_dir: Path, filepath: Path) -> dict:
+async def ingest_document(workspace_dir: Path, filepath: Path) -> dict:
     text = filepath.read_text(encoding="utf-8", errors="replace")
     docs_dir = workspace_dir / "knowledge" / "documents"
     docs_dir.mkdir(parents=True, exist_ok=True)
@@ -75,7 +76,7 @@ def ingest_document(workspace_dir: Path, filepath: Path) -> dict:
     chunks = _chunk_text(text)
     if not chunks:
         return {"status": "error", "error": "No text content found", "chunks": 0}
-    embeddings = _get_embeddings(chunks)
+    embeddings = await _get_embeddings(chunks)
     if not embeddings:
         return {"status": "error", "error": "Failed to get embeddings from Ollama. Is nomic-embed-text pulled?", "chunks": len(chunks)}
     index = _load_index(workspace_dir)
@@ -98,7 +99,7 @@ def ingest_document(workspace_dir: Path, filepath: Path) -> dict:
     _save_index(workspace_dir, index)
     return {"status": "ok", "filename": doc_id, "chunks": len(chunks)}
 
-def search_knowledge(workspace_dir: Path, query: str, top_k: int = 5) -> list[dict]:
+async def search_knowledge(workspace_dir: Path, query: str, top_k: int = 5) -> list[dict]:
     index = _load_index(workspace_dir)
     if not index["chunks"]:
         return []

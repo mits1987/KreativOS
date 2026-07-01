@@ -45,13 +45,13 @@ export default function OnboardingWizard({ onComplete }) {
     } else if (step === 1) {
       setPulling(true)
       setPullStatus('Pulling llama3.2:3b...')
-      fetch('http://localhost:11434/api/pull', {
-        method: 'POST',
-        body: JSON.stringify({ name: 'llama3.2:3b' })
-      }).then(r => {
-        if (r.ok) setPullStatus('Pull complete!')
-        else setPullStatus('Pull failed — you can pull models manually later')
-      }).catch(() => setPullStatus('Ollama not reachable — pull manually later'))
+      try {
+        await api.post('/api/hub/pull', { model: 'llama3.2:3b' })
+        setPullStatus('Pull complete!')
+      } catch {
+        setPullStatus('Ollama not reachable — pull manually later')
+      }
+      setPulling(false)
       setStep(2)
     } else {
       localStorage.setItem('onboarding_done', 'true')
@@ -85,16 +85,19 @@ export default function OnboardingWizard({ onComplete }) {
         )}
 
         {step === 1 && pullStatus && (
-          <div className="text-sm text-zinc-400 mb-4">{pullStatus}</div>
+          <div className="text-sm text-zinc-400 mb-4">
+            {pullStatus}
+            {pulling && <span className="ml-2 animate-pulse">...</span>}
+          </div>
         )}
 
         <div className="flex gap-3">
-          <button onClick={handleAction}
-            className="flex-1 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg transition-colors">
-            {s.action}
+          <button onClick={handleAction} disabled={pulling}
+            className="flex-1 px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors">
+            {pulling ? 'Pulling...' : s.action}
           </button>
-          <button onClick={skip}
-            className="px-4 py-2 text-zinc-400 hover:text-zinc-300 transition-colors">
+          <button onClick={skip} disabled={pulling}
+            className="px-4 py-2 text-zinc-400 hover:text-zinc-300 disabled:text-zinc-600 transition-colors">
             Skip
           </button>
         </div>
