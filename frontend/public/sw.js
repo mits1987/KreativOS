@@ -8,13 +8,12 @@
  * Now: the new SW waits. When the user clicks "Reload to apply" in the
  * update toast, App.jsx posts a SKIP_WAITING message, THEN reloads.
  */
-const CACHE_NAME    = 'kreavitos-v2'
-const STATIC_ASSETS = ['/', '/index.html', '/manifest.json']
+const CACHE_NAME    = 'kreavitos-v3'
+const STATIC_ASSETS = ['/manifest.json']
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE_NAME).then(c => c.addAll(STATIC_ASSETS))
-    // NOTE: no self.skipWaiting() — wait for explicit user action
   )
 })
 
@@ -50,9 +49,10 @@ self.addEventListener('fetch', (e) => {
     return
   }
 
-  // Cache-first for static assets
+  // Network-first for everything else — KreativOS is a local app,
+  // caching HTML/assets causes stale-after-rebuild issues
   e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request))
+    fetch(e.request).catch(() => caches.match(e.request))
   )
 })
 

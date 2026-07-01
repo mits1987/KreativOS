@@ -54,7 +54,8 @@ class AuthManager:
     def _ensure_admin(self):
         users = self._load()
         if not users:
-            password = secrets.token_urlsafe(16)
+            import os as _os
+            password = _os.environ.get("KREATIVOS_ADMIN_PASSWORD") or secrets.token_urlsafe(16)
             users["admin"] = {
                 "password": self._hash(password),
                 "role":     "admin",

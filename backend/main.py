@@ -17,7 +17,7 @@ load_dotenv()
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -230,7 +230,11 @@ if FRONTEND_DIST.exists():
             elif full_path.endswith(".svg"):
                 media_type = "image/svg+xml"
             return FileResponse(static_file, media_type=media_type)
-        return FileResponse(FRONTEND_DIST / "index.html")
+        return Response(
+            content=(FRONTEND_DIST / "index.html").read_bytes(),
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+        )
 
 
 
