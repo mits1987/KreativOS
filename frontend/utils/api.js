@@ -200,6 +200,8 @@ export const api = {
   readFile:          (n)                      => api.get(`/api/files/read/${encodeURIComponent(n)}`),
   deleteFile:        (n)                      => api.delete(`/api/files/delete/${encodeURIComponent(n)}`),
   writeFile:         (filename, content)      => api.post('/api/files/write', { filename, content }),
+  fileHistory:       (n)                      => api.get(`/api/files/${encodeURIComponent(n)}/history`),
+  restoreVersion:    (backup_name)            => api.post(`/api/files/restore/${encodeURIComponent(backup_name)}`),
 
   // App builder
   buildApp:          (description, model, app_type, project = '') =>
@@ -210,6 +212,8 @@ export const api = {
   getWorkflows:      ()                       => api.get('/api/canvas/workflows'),
   saveWorkflow:      (wf)                     => api.post('/api/canvas/workflows', wf),
   deleteWorkflow:    (id)                     => api.delete(`/api/canvas/workflows/${id}`),
+  exportWorkflow:    (id)                     => api.get(`/api/canvas/workflows/${id}/export`),
+  importWorkflow:    (data)                   => api.post('/api/canvas/workflows/import', data),
   runWorkflow:       (id, model, task)        => api.post(`/api/canvas/run/${id}`, { model, task }),
 
   // Code review
@@ -250,6 +254,24 @@ export const api = {
   // Office
   generateOffice:    (prompt, model, format, title = '', project = '') =>
     api.post('/api/office/generate', { prompt, model, format, title, project }),
+
+  // Pipeline user templates
+  pipelines:        ()        => api.get('/api/pipelines'),
+  savePipeline:     (name, phases) => api.post('/api/pipelines', { name, phases }),
+  deletePipeline:   (name)    => api.delete(`/api/pipelines/${encodeURIComponent(name)}`),
+
+  // Agent model overrides
+  getAgentModels:   ()        => api.get('/api/settings/agent-models'),
+  setAgentModels:   (data)    => api.post('/api/settings/agent-models', data),
+
+  // GitHub
+  github: {
+    listRepos: () => api.get('/api/github/repos'),
+    createIssue: (owner, repo, title, body, labels) =>
+      api.post('/api/github/issues', { owner, repo, title, body, labels }),
+    commitFile: (owner, repo, path, content, message, branch) =>
+      api.post('/api/github/commit', { owner, repo, path, content, message, branch }),
+  },
 
   // Permissions
   pendingPermissions: () => api.get('/api/permissions/pending'),

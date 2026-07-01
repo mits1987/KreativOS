@@ -1,11 +1,11 @@
 ﻿import React, { useState, useEffect } from 'react'
-import { GitBranch, Play, CheckCircle, Clock, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react'
+import { GitBranch, Play, CheckCircle, Clock, ChevronDown, ChevronRight, RotateCcw, X, Save } from 'lucide-react'
 import clsx from 'clsx'
 import useStore from '../store'
 import api from '../utils/api'
 import MessageRenderer from '../components/MessageRenderer'
 
-const TEMPLATES = {
+const BUILTIN_TEMPLATES = {
   full_app:       { label: '🚀 Full App',        desc: 'Architect → Coder → DevOps', steps: ['Design Architecture','Write Code','Write Deployment'] },
   research_build: { label: '🔍 Research & Build', desc: 'Researcher → Architect → Coder', steps: ['Research Topic','Design Solution','Implement'] },
   code_only:      { label: '💻 Code & Deploy',    desc: 'Coder → DevOps', steps: ['Write Code','Package & Deploy'] },
@@ -60,6 +60,21 @@ export default function PipelineView() {
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState([])
   const [progress, setProgress] = useState(null)
+  const [userTemplates, setUserTemplates] = useState({})
+  const [saveName, setSaveName] = useState('')
+  const [showSave, setShowSave] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const allTemplates = { ...BUILTIN_TEMPLATES, ...Object.fromEntries(
+    Object.entries(userTemplates).map(([k, phases]) => [
+      k, { label: `📋 ${k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}`,
+           desc: `${phases.length} phase(s)`, steps: (phases || []).map(p => p.label), isUser: true }
+    ])
+  )}
+
+  useEffect(() => {
+    api.pipelines().then(data => setUserTemplates(data)).catch(() => {})
+  }, [])
 
   const run = async () => {
     if (!task.trim() || !selectedModel || running) return
@@ -79,12 +94,39 @@ export default function PipelineView() {
     finally { setRunning(false); setProgress(null) }
   }
 
+  const saveCurrentTemplate = async () => {
+    if (!saveName.trim()) return
+    setSaving(true)
+    try {
+      const t = allTemplates[template]
+      if (!t) return
+      const phases = t.steps.map((label, i) => ({ phase: i + 1, agent: 'coder', label }))
+      await api.savePipeline(saveName.trim(), phases)
+      const data = await api.pipelines()
+      setUserTemplates(data)
+      setShowSave(false)
+      setSaveName('')
+    } catch(e) { setProgress('Save error: ' + e.message) }
+    finally { setSaving(false) }
+  }
+
+  const deleteUserTemplate = async (name) => {
+    try {
+      await api.deletePipeline(name)
+      const data = await api.pipelines()
+      setUserTemplates(data)
+      if (template === name) setTemplate('full_app')
+    } catch(e) { setProgress('Delete error: ' + e.message) }
+  }
+
   const examples = [
     { task: 'Build a URL shortener web app with FastAPI and SQLite', template: 'full_app' },
     { task: 'Research best practices for building a RAG system and implement one', template: 'research_build' },
     { task: 'Create a Python CLI tool to batch rename files with regex patterns', template: 'code_only' },
     { task: 'Research the current state of AI agents in 2024 and create a detailed report', template: 'research_only' },
   ]
+
+  const entries = Object.entries(allTemplates)
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -97,22 +139,31 @@ export default function PipelineView() {
 
         <div className="glass rounded-2xl border border-white/10 p-5 mb-6">
           <div className="grid grid-cols-2 gap-2 mb-4 sm:grid-cols-4">
-            {Object.entries(TEMPLATES).map(([id, t]) => (
-              <button key={id} onClick={() => setTemplate(id)}
-                className={clsx('p-3 rounded-xl border text-left transition-all text-xs',
-                  template===id ? 'border-accent-purple/50 bg-accent-purple/10' : 'border-white/10 hover:border-white/20')}>
-                <div className="font-medium text-white mb-1">{t.label}</div>
-                <div className="text-slate-500">{t.desc}</div>
-              </button>
+            {entries.map(([id, t]) => (
+              <div key={id} className="relative group">
+                <button onClick={() => setTemplate(id)}
+                  className={clsx('w-full p-3 rounded-xl border text-left transition-all text-xs',
+                    template===id ? 'border-accent-purple/50 bg-accent-purple/10' : 'border-white/10 hover:border-white/20')}>
+                  <div className="font-medium text-white mb-1">{t.label}</div>
+                  <div className="text-slate-500">{t.desc}</div>
+                </button>
+                {t.isUser && (
+                  <button onClick={() => deleteUserTemplate(id)}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Delete template">
+                    <X size={10} />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
 
           {/* Pipeline preview */}
           <div className="flex items-center gap-1 mb-4 overflow-x-auto pb-1">
-            {TEMPLATES[template].steps.map((s, i) => (
+            {allTemplates[template]?.steps.map((s, i) => (
               <React.Fragment key={i}>
                 <div className="flex-shrink-0 px-2.5 py-1 rounded-lg bg-surface-3 text-xs text-slate-300 whitespace-nowrap">{s}</div>
-                {i < TEMPLATES[template].steps.length-1 && <div className="text-slate-600 flex-shrink-0">→</div>}
+                {i < allTemplates[template].steps.length-1 && <div className="text-slate-600 flex-shrink-0">→</div>}
               </React.Fragment>
             ))}
           </div>
@@ -129,10 +180,24 @@ export default function PipelineView() {
               </div>
               <span className="text-xs text-slate-500">Skip Ralph Loop {skipRalph ? '(faster, less refined)' : '(on)'}</span>
             </label>
-            <button onClick={run} disabled={!task.trim()||!selectedModel||running}
-              className="btn-primary flex items-center gap-2 disabled:opacity-30">
-              <Play size={14}/>{running?'Running pipeline…':'Run Pipeline'}
-            </button>
+            <div className="flex items-center gap-2">
+              {showSave ? (
+                <div className="flex items-center gap-1">
+                  <input value={saveName} onChange={e=>setSaveName(e.target.value)} placeholder="Template name"
+                    className="input-base text-xs w-32 py-1.5" autoFocus onKeyDown={e => e.key==='Enter' && saveCurrentTemplate()}/>
+                  <button onClick={saveCurrentTemplate} disabled={saving || !saveName.trim()} className="btn-primary text-xs py-1.5 px-2">Save</button>
+                  <button onClick={() => setShowSave(false)} className="btn-ghost text-xs py-1.5 px-2">Cancel</button>
+                </div>
+              ) : (
+                <button onClick={() => setShowSave(true)} className="btn-ghost text-xs flex items-center gap-1">
+                  <Save size={12}/> Save Template
+                </button>
+              )}
+              <button onClick={run} disabled={!task.trim()||!selectedModel||running}
+                className="btn-primary flex items-center gap-2 disabled:opacity-30">
+                <Play size={14}/>{running?'Running pipeline…':'Run Pipeline'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -142,7 +207,7 @@ export default function PipelineView() {
             {examples.map((ex,i) => (
               <button key={i} onClick={()=>{setTask(ex.task);setTemplate(ex.template)}}
                 className="w-full text-left glass glass-hover rounded-xl p-3 border border-white/10">
-                <div className="text-xs text-slate-500 mb-0.5">{TEMPLATES[ex.template]?.label}</div>
+                <div className="text-xs text-slate-500 mb-0.5">{BUILTIN_TEMPLATES[ex.template]?.label}</div>
                 <div className="text-sm text-slate-300">{ex.task}</div>
               </button>
             ))}

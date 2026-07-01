@@ -2,10 +2,11 @@ import React, { useState, useRef } from 'react'
 import {
   MessageSquare, FolderOpen, Settings, ChevronLeft, Plus, Trash2,
   Sparkles, Zap, LayoutDashboard, Search, Package, GitBranch, Workflow,
-  Blocks, Database, Clock, Shield,
+  Blocks, Database, Clock, Shield, Activity,
   BookOpen, Star, LogOut, Network,
 } from 'lucide-react'
 import useStore from '../store'
+import api from '../utils/api'
 import clsx from 'clsx'
 import BrainMark from './BrainMark'
 
@@ -27,6 +28,7 @@ const NAV = [
   { id:'hub',        icon:Package,         label:'Model Hub',    group:'data'   },
   { id:'mcp',        icon:Network,         label:'MCP Servers',  group:'data'   },
   // System
+  { id:'runs',       icon:Activity,        label:'Run History',  group:'system' },
   { id:'scheduler',  icon:Clock,           label:'Scheduler',    group:'system' },
   { id:'audit',      icon:Shield,          label:'Audit Log',    group:'system' },
   { id:'settings',   icon:Settings,        label:'Settings',     group:'system' },
@@ -108,23 +110,54 @@ function NavItem({ id, icon: Icon, label, active, onClick }) {
 
 // ── Expanded sidebar ──────────────────────────────────────────────────────────
 export default function Sidebar() {
-  const {
-    conversations, activeConvId, setActiveConv, createConversation,
-    deleteConversation, sidebarOpen, setSidebarOpen,
-    activeView, setActiveView, ollamaStatus, agents, logout,
-  } = useStore()
-  const [search, setSearch] = useState('')
+  const conversations = useStore(s => s.conversations)
+  const activeConvId  = useStore(s => s.activeConvId)
+  const setActiveConv = useStore(s => s.setActiveConv)
+  const createConversation = useStore(s => s.createConversation)
+  const deleteConversation = useStore(s => s.deleteConversation)
+  const sidebarOpen  = useStore(s => s.sidebarOpen)
+  const setSidebarOpen = useStore(s => s.setSidebarOpen)
+  const activeView   = useStore(s => s.activeView)
+  const setActiveView = useStore(s => s.setActiveView)
+  const ollamaStatus = useStore(s => s.ollamaStatus)
+  const agents       = useStore(s => s.agents)
+  const logout       = useStore(s => s.logout)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [isSearching, setIsSearching] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState(null)
+  const searchTimerRef = useRef(null)
   const lastNavRef = useRef(0)
+
+  const handleSearch = (q) => {
+    setSearchQuery(q)
+    clearTimeout(searchTimerRef.current)
+    if (!q.trim()) {
+      setSearchResults([])
+      return
+    }
+    searchTimerRef.current = setTimeout(async () => {
+      setIsSearching(true)
+      try {
+        const results = await api.get(`/api/conversations/search?q=${encodeURIComponent(q)}`)
+        setSearchResults(results)
+      } catch {}
+      setIsSearching(false)
+    }, 300)
+  }
+
   const handleNav = (view) => {
     const now = Date.now()
     if (now - lastNavRef.current < 200) return
     lastNavRef.current = now
     setActiveView(view)
   }
-  const filtered = conversations.filter(c =>
-    c.title.toLowerCase().includes(search.toLowerCase())
-  )
+
+  const displayConvs = searchQuery.trim() && searchResults.length > 0
+    ? searchResults
+    : conversations.filter(c =>
+        c.title.toLowerCase().includes(searchQuery.toLowerCase())
+      )
 
   if (!sidebarOpen) {
     return (
@@ -209,19 +242,17 @@ export default function Sidebar() {
                 <Plus size={11}/>
               </button>
             </div>
-            {conversations.length > 5 && (
-              <div className="relative mb-1 px-2">
-                <Search size={10} className="absolute left-5 top-2.5 text-slate-600"/>
-                <input
-                  className="w-full bg-surface-3/50 border border-white/8 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-accent-purple/30 transition-colors"
-                  placeholder="Search…"
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                />
-              </div>
-            )}
+            <div className="relative mb-1 px-2">
+              <Search size={10} className="absolute left-5 top-2.5 text-slate-600"/>
+              <input
+                className="w-full bg-surface-3/50 border border-white/8 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-accent-purple/30 transition-colors"
+                placeholder="Search…"
+                value={searchQuery}
+                onChange={e => handleSearch(e.target.value)}
+              />
+            </div>
             <div className="space-y-0.5 px-1">
-              {filtered.map(conv => {
+              {displayConvs.map(conv => {
                 const agentIcon = agents.find(a => a.id === conv.agent)?.icon || '🤖'
                 return (
                   <div key={conv.id}
@@ -242,8 +273,10 @@ export default function Sidebar() {
                   </div>
                 )
               })}
-              {!filtered.length && (
-                <div className="text-center py-4 text-slate-700 text-xs">No chats yet</div>
+              {!displayConvs.length && (
+                <div className="text-center py-4 text-slate-700 text-xs">
+                  {searchQuery && isSearching ? 'Searching…' : 'No chats yet'}
+                </div>
               )}
             </div>
           </div>

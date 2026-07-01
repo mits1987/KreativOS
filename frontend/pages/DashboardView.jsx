@@ -173,6 +173,8 @@ export default function DashboardView() {
           <StatCard icon={RotateCcw}   label="Ralph Loops run"    value={s.ralph_loops_run}      color="#8b5cf6" sub="Auto quality checks" />
           <StatCard icon={CheckCircle} label="Auto-fixes applied" value={s.ralph_fixes_applied}  color="#ec4899" sub="By self-critic + QA" />
           <StatCard icon={Terminal}    label="Code executions"    value={s.code_executions}      color="#06b6d4" />
+          <StatCard icon={Brain}       label="Prompt tokens"      value={s.total_tokens_prompt?.toLocaleString()} color="#a78bfa" />
+          <StatCard icon={Brain}       label="Completion tokens"  value={s.total_tokens_completion?.toLocaleString()} color="#34d399" />
         </div>
 
         {/* Bottom row: agent usage + activity feed */}

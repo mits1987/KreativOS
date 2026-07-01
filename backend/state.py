@@ -16,3 +16,7 @@ audit_log  = None  # AuditLog
 START_TIME = ""
 stats = {}
 track: callable = lambda event, detail="": None
+
+# Token usage counters (updated by engine.py)
+total_tokens_prompt: int = 0
+total_tokens_completion: int = 0

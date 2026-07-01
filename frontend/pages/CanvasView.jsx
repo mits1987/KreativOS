@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Play, Trash2, Save, Workflow } from 'lucide-react'
+import { Download, Plus, Play, Trash2, Save, Upload, Workflow } from 'lucide-react'
 import clsx from 'clsx'
 import useStore from '../store'
 import api from '../utils/api'
@@ -109,9 +109,7 @@ export default function CanvasView() {
   const [activeWf,  setActiveWf]  = useState(null)
   const nextX = useRef(60)
 
-  useEffect(() => {
-    api.get('/api/canvas/workflows').then(d => setWorkflows(d.workflows || []))
-  }, [])
+  useEffect(() => { loadWorkflows() }, [loadWorkflows])
 
   const addNode = (agentId) => {
     const agent = AGENTS.find(a => a.id === agentId)
@@ -159,6 +157,43 @@ export default function CanvasView() {
     setWorkflows(prev => prev.filter(w => w.id !== id))
     if (activeWf === id) { setNodes([]); setActiveWf(null) }
   }
+
+  const exportWorkflow = async (wf) => {
+    try {
+      const data = await api.exportWorkflow(wf.id)
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `workflow-${wf.id}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {}
+  }
+
+  const importWorkflow = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json'
+    input.onchange = async (e) => {
+      const file = e.target.files[0]
+      if (!file) return
+      try {
+        const text = await file.text()
+        const data = JSON.parse(text)
+        await api.importWorkflow(data)
+        loadWorkflows()
+      } catch {}
+    }
+    input.click()
+  }
+
+  const loadWorkflows = useCallback(async () => {
+    try {
+      const d = await api.get('/api/canvas/workflows')
+      setWorkflows(d.workflows || [])
+    } catch {}
+  }, [])
 
   const runWorkflow = async () => {
     if (!nodes.length || !task.trim() || !selectedModel || running) return
@@ -225,7 +260,12 @@ export default function CanvasView() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="text-xs text-slate-600 uppercase tracking-wider mb-2">Saved Workflows</div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs text-slate-600 uppercase tracking-wider">Saved Workflows</div>
+            <button onClick={importWorkflow} className="text-xs text-accent-purple hover:text-accent-purple/80 flex items-center gap-1">
+              <Upload size={12} /> Import
+            </button>
+          </div>
           {!workflows.length && (
             <div className="text-xs text-slate-700 py-4 text-center">No workflows saved yet</div>
           )}
@@ -244,12 +284,21 @@ export default function CanvasView() {
                   <div className="text-xs font-medium text-white truncate">{wf.name}</div>
                   <div className="text-xs text-slate-600">{wf.nodes?.length || 0} agents</div>
                 </div>
-                <button
-                  onClick={() => deleteWorkflow(wf.id)}
-                  className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 transition-all ml-1"
-                >
-                  <Trash2 size={11} />
-                </button>
+                <div className="flex items-center opacity-0 group-hover:opacity-100 transition-all ml-1">
+                  <button
+                    onClick={() => exportWorkflow(wf)}
+                    className="text-slate-600 hover:text-accent-purple mr-1"
+                    title="Export workflow"
+                  >
+                    <Download size={11} />
+                  </button>
+                  <button
+                    onClick={() => deleteWorkflow(wf.id)}
+                    className="text-slate-600 hover:text-red-400"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
               </div>
             </div>
           ))}

@@ -38,13 +38,22 @@ def _get_url(name: str) -> str:
 
 
 def _validate_mcp_url(url: str):
+    import ipaddress
+    import socket
     p = urlparse(url)
     if p.scheme not in ("http", "https"):
         raise ValueError("MCP URL must be http or https")
     host = p.hostname or ""
-    blocked = {"169.254.169.254", "metadata.google.internal"}
-    if host in blocked or host.startswith("169.254."):
-        raise ValueError("Blocked host")
+    if host in ("localhost", "127.0.0.1", "::1"):
+        return
+    try:
+        addr = ipaddress.ip_address(socket.gethostbyname(host))
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved or addr.is_multicast:
+            raise ValueError(f"MCP server must be on localhost, got {addr}")
+    except ValueError as e:
+        if "MCP server must be on localhost" in str(e):
+            raise
+        raise ValueError(f"Cannot resolve MCP host: {e}")
 
 
 async def _rpc(url: str, method: str, params: dict) -> dict:

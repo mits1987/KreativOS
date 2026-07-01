@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import api from './utils/api'
 
 /**
  * Phase 1 Fix: Zustand store
@@ -78,24 +79,28 @@ const useStore = create((set, get) => ({
   },
 
   // ── Conversations ──────────────────────────────────────────────────────────
-  conversations: JSON.parse(localStorage.getItem('conversations') || '[]'),
+  conversations: [],
   activeConvId:  localStorage.getItem('activeConvId') || null,
+  isLoadingConversations: false,
 
-  createConversation: (title = `New Chat ${new Date().toLocaleString()}`) => {
-    const id   = `conv_${Date.now()}`
-    const conv = {
-      id,
-      title,
-      messages:  [],
-      agent:     get().selectedAgent,
-      model:     get().selectedModel,
-      createdAt: new Date().toISOString(),
+  loadConversations: async () => {
+    set({ isLoadingConversations: true })
+    try {
+      const convs = await api.get('/api/conversations')
+      set({ conversations: convs, isLoadingConversations: false })
+    } catch {
+      set({ isLoadingConversations: false })
     }
-    const convs = [conv, ...get().conversations]
-    localStorage.setItem('conversations', JSON.stringify(convs))
-    localStorage.setItem('activeConvId', id)
-    set({ conversations: convs, activeConvId: id })
-    return id
+  },
+
+  createConversation: async (title, model) => {
+    const t = title || `New Chat ${new Date().toLocaleString()}`
+    const m = model || get().selectedModel
+    const conv = await api.post('/api/conversations', { title: t, model: m })
+    const convs = [{ ...conv, messages: conv.messages || [] }, ...get().conversations]
+    localStorage.setItem('activeConvId', conv.id)
+    set({ conversations: convs, activeConvId: conv.id })
+    return conv
   },
 
   getActiveConv: () => {
@@ -114,7 +119,6 @@ const useStore = create((set, get) => ({
 
       let messages = [...c.messages, { ...message, id: `msg_${Date.now()}` }]
 
-      // [P1 Fix] Cap messages to prevent unbounded localStorage growth
       if (messages.length > MAX_MESSAGES_PER_CONV) {
         const notice = {
           id:      `msg_trim_${Date.now()}`,
@@ -126,7 +130,6 @@ const useStore = create((set, get) => ({
         messages = [notice, ...messages.slice(-(MAX_MESSAGES_PER_CONV - PRUNE_AMOUNT))]
       }
 
-      // Auto-title from first user message
       const title =
         c.title === 'New Chat' && message.role === 'user'
           ? message.content.slice(0, 50) + (message.content.length > 50 ? '…' : '')
@@ -134,7 +137,6 @@ const useStore = create((set, get) => ({
 
       return { ...c, messages, title }
     })
-    localStorage.setItem('conversations', JSON.stringify(convs))
     set({ conversations: convs })
   },
 
@@ -147,23 +149,25 @@ const useStore = create((set, get) => ({
       }
       return { ...c, messages }
     })
-    if (!get().isStreaming) {
-      localStorage.setItem('conversations', JSON.stringify(convs))
-    }
     set({ conversations: convs })
   },
 
-  deleteConversation: (id) => {
+  persistMessage: async (convId, role, content) => {
+    try {
+      await api.post(`/api/conversations/${convId}/messages`, { role, content })
+    } catch {}
+  },
+
+  deleteConversation: async (id) => {
+    await api.delete(`/api/conversations/${id}`)
     const convs       = get().conversations.filter(c => c.id !== id)
     const activeConvId =
       get().activeConvId === id ? (convs[0]?.id || null) : get().activeConvId
-    localStorage.setItem('conversations', JSON.stringify(convs))
     localStorage.setItem('activeConvId', activeConvId)
     set({ conversations: convs, activeConvId })
   },
 
   clearConversations: () => {
-    localStorage.setItem('conversations', '[]')
     localStorage.removeItem('activeConvId')
     set({ conversations: [], activeConvId: null })
   },

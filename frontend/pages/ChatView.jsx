@@ -5,7 +5,7 @@ import useStore from '../store'
 import api from '../utils/api'
 import MessageRenderer from '../components/MessageRenderer'
 
-const MessageRow = React.memo(({ msg, isLast, isStreaming, thinkingTime, agentInfo }) => (
+const MessageRow = React.memo(({ msg, isLast, isStreaming, liveContent, thinkingTime, agentInfo }) => (
   <div className="max-w-3xl mx-auto message-enter mb-6">
     {msg.role === 'user' ? (
       <div className="flex justify-end">
@@ -33,8 +33,8 @@ const MessageRow = React.memo(({ msg, isLast, isStreaming, thinkingTime, agentIn
             )}
           </div>
           <MessageRenderer
-            content={msg.content || ''}
-            isStreaming={isLast && isStreaming && !msg.content}
+            content={isLast && isStreaming ? liveContent : (msg.content || '')}
+            isStreaming={isLast && isStreaming}
           />
         </div>
       </div>
@@ -100,6 +100,7 @@ function ModelPicker({ models, selected, onSelect }) {
 export default function ChatView() {
   const {
     conversations, activeConvId, createConversation, addMessage, updateLastMessage,
+    persistMessage,
     selectedModel, setSelectedModel, models, selectedAgent, setSelectedAgent, agents,
     isStreaming, setIsStreaming,
   } = useStore()
@@ -107,6 +108,7 @@ export default function ChatView() {
   const [input,        setInput]        = useState('')
   const [streamError,  setStreamError]  = useState(null)
   const [thinkingTime, setThinkingTime] = useState(0)
+  const [liveContent,  setLiveContent]  = useState('')
   const [inputHistory, setInputHistory] = useState([])   // sent messages, newest first
   const [historyIdx,   setHistoryIdx]   = useState(-1)   // -1 = current draft
   const messagesEndRef  = useRef(null)
@@ -140,7 +142,8 @@ export default function ChatView() {
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
     userScrolledRef.current = !atBottom
   }
-  useEffect(() => { if (!activeConvId) createConversation() }, [])
+  // Load conversations from store on mount (App.jsx triggers the API call)
+  useEffect(() => { useStore.getState().loadConversations() }, [])
 
   // Abort stream on unmount
   useEffect(() => () => { abortCtrlRef.current?.abort(); abortRef.current = true }, [])
@@ -174,9 +177,13 @@ export default function ChatView() {
     if (!content || isStreaming || !selectedModel) return
 
     let convId = activeConvId
-    if (!convId) convId = createConversation()
+    if (!convId) {
+      const conv = await createConversation()
+      convId = conv.id
+    }
 
     addMessage(convId, { role: 'user', content })
+    persistMessage(convId, 'user', content)
     setInputHistory(prev => [content, ...prev.filter(h => h !== content)].slice(0, 50))
     setHistoryIdx(-1)
     setInput('')
@@ -197,6 +204,7 @@ export default function ChatView() {
       const tick = (chunk) => {
         lastChunkRef.current = Date.now()
         streamBufferRef.current += chunk
+        setLiveContent(streamBufferRef.current)
       }
 
       if (selectedAgent === 'orchestrator') {
@@ -249,7 +257,14 @@ export default function ChatView() {
       abortCtrlRef.current = null
       if (streamBufferRef.current) {
         updateLastMessage(convId, streamBufferRef.current)
+        persistMessage(convId, 'assistant', streamBufferRef.current)
         streamBufferRef.current = ''
+      }
+      setLiveContent('')
+      if (Notification.permission === 'granted' && !document.hasFocus()) {
+        new Notification('KreativOS', { body: 'Task complete!' })
+      } else if (Notification.permission === 'default') {
+        Notification.requestPermission()
       }
     }
   }, [input, isStreaming, selectedModel, selectedAgent, activeConvId, conversations])
@@ -267,6 +282,22 @@ export default function ChatView() {
       const idx = historyIdx - 1
       setHistoryIdx(idx)
       setInput(idx < 0 ? '' : (inputHistory[idx] || ''))
+    }
+  }
+
+  const startVoiceInput = () => {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      alert('Voice input is not supported in this browser. Try Chrome or Edge.')
+      return
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    const recognition = new SpeechRecognition()
+    recognition.lang = 'en-US'
+    recognition.interimResults = false
+    recognition.start()
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript
+      setInput(prev => prev + transcript)
     }
   }
 
@@ -304,7 +335,7 @@ export default function ChatView() {
           const isLast    = i === messages.length - 1
           const agentInfo = agents.find(a => a.id === (msg.agent || selectedAgent))
           return (
-            <MessageRow key={msg.id || i} msg={msg} isLast={isLast} isStreaming={isStreaming} thinkingTime={thinkingTime} agentInfo={agentInfo} />
+            <MessageRow key={msg.id || i} msg={msg} isLast={isLast} isStreaming={isStreaming} liveContent={isLast && isStreaming ? liveContent : ''} thinkingTime={thinkingTime} agentInfo={agentInfo} />
           )
         })}
         <div ref={messagesEndRef} />
@@ -341,6 +372,13 @@ export default function ChatView() {
                 <ModelPicker models={models} selected={selectedModel} onSelect={setSelectedModel} />
               </div>
               <div className="flex items-center gap-2">
+                <button onClick={startVoiceInput}
+                  className="p-2 text-zinc-400 hover:text-white transition-colors"
+                  title="Voice input" aria-label="Voice input">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m-4 0h8" />
+                  </svg>
+                </button>
                 {isStreaming ? (
                   <button onClick={() => { abortCtrlRef.current?.abort(); abortRef.current = true; setIsStreaming(false) }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg text-xs transition-all">

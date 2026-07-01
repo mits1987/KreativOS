@@ -47,7 +47,9 @@ class AuthManager:
             return {}
 
     def _save(self, users: dict):
-        self.path.write_text(json.dumps(users, indent=2))
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(users, indent=2), encoding="utf-8")
+        tmp.replace(self.path)
 
     def _ensure_admin(self):
         users = self._load()
@@ -59,13 +61,10 @@ class AuthManager:
                 "created":  datetime.now().isoformat(),
             }
             self._save(users)
-            # Persist the plaintext first-boot password alongside the hash
-            # so it survives re-init (and is available for tests).
-            self.path.parent.joinpath(".first_boot_password").write_text(password)
+            self._first_boot_password = password
             logger.warning("FIRST BOOT: admin password is %s — change immediately", password)
-        # Load persisted first-boot password (may be None if already changed)
-        boot_pw = self.path.parent / ".first_boot_password"
-        self._first_boot_password = boot_pw.read_text().strip() if boot_pw.exists() else None
+        else:
+            self._first_boot_password = None
 
     # ── Token management ───────────────────────────────────────────────────────
     def login(self, username: str, password: str) -> Optional[str]:

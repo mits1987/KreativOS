@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { FolderOpen, FileText, Trash2, Download, RefreshCw, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
+import { FolderOpen, FileText, Trash2, Download, RefreshCw, Plus, ChevronLeft, ChevronRight, History, RotateCcw } from 'lucide-react'
 import clsx from 'clsx'
 import api from '../utils/api'
 import MessageRenderer from '../components/MessageRenderer'
@@ -34,6 +34,9 @@ export default function FilesView() {
   const [newName,    setNewName]    = useState('')
   const [newBody,    setNewBody]    = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [versionsFor, setVersionsFor] = useState(null)
+  const [versions, setVersions] = useState([])
+  const [versionsLoading, setVersionsLoading] = useState(false)
 
   const load = useCallback(async (p = page) => {
     setLoading(true)
@@ -89,6 +92,23 @@ export default function FilesView() {
   const isCode = (name) =>
     /\.(py|js|jsx|ts|tsx|html|css|json|md|sh|yml|yaml|txt)$/i.test(name)
 
+  const openVersions = async (name) => {
+    setVersionsFor(name); setVersionsLoading(true); setVersions([])
+    try {
+      const data = await api.fileHistory(name)
+      setVersions(data || [])
+    } catch (e) { console.error('Failed to load versions', e) }
+    finally { setVersionsLoading(false) }
+  }
+
+  const restoreVersion = async (backupName) => {
+    try {
+      await api.restoreVersion(backupName)
+      setVersionsFor(null); setVersions([])
+      load(page)
+    } catch (e) { console.error('Failed to restore version', e) }
+  }
+
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
   return (
@@ -133,6 +153,10 @@ export default function FilesView() {
                 <div className="text-xs font-mono truncate">{file.name}</div>
                 <div className="text-xs text-slate-600">{formatSize(file.size)}</div>
               </div>
+              <button onClick={e => { e.stopPropagation(); openVersions(file.name) }}
+                className="opacity-0 group-hover:opacity-100 p-1 text-slate-600 hover:text-accent-amber transition-all">
+                <History size={12} />
+              </button>
               <button onClick={e => { e.stopPropagation(); setDeleteTarget(file.name) }}
                 className="opacity-0 group-hover:opacity-100 p-1 text-slate-600 hover:text-red-400 transition-all">
                 <Trash2 size={12} />
@@ -220,6 +244,38 @@ export default function FilesView() {
           </div>
         )}
       </div>
+
+      {/* Version history modal */}
+      {versionsFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-surface-1 border border-white/10 rounded-xl p-6 max-w-lg w-full mx-4 shadow-2xl animate-fade-in max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-sm font-semibold text-white flex items-center gap-2">
+                <History size={14} className="text-accent-amber" />
+                Versions: {versionsFor}
+              </div>
+              <button onClick={() => { setVersionsFor(null); setVersions([]) }}
+                className="text-slate-500 hover:text-white transition-all">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-2">
+              {versionsLoading && <div className="text-xs text-slate-500 text-center py-8">Loading…</div>}
+              {!versionsLoading && versions.length === 0 && (
+                <div className="text-xs text-slate-500 text-center py-8">No versions found.</div>
+              )}
+              {versions.map(v => (
+                <div key={v.filename} className="flex items-center justify-between px-3 py-2 bg-surface-2 rounded-lg">
+                  <div className="text-xs text-slate-300 font-mono">{v.timestamp}</div>
+                  <div className="text-xs text-slate-500">{formatSize(v.size)}</div>
+                  <button onClick={() => restoreVersion(v.filename)}
+                    className="flex items-center gap-1 px-2 py-1 text-xs text-accent-amber hover:bg-surface-3 rounded transition-all">
+                    <RotateCcw size={10} /> Restore
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete confirmation overlay */}
       {deleteTarget && (

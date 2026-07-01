@@ -3,6 +3,45 @@ import { Settings, CheckCircle, XCircle, RefreshCw, Trash2, Server, Brain, Datab
 import useStore from '../store'
 import api from '../utils/api'
 
+function AgentModelsSection({ models, agents }) {
+  const [overrides, setOverrides] = useState({})
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    api.getAgentModels().then(data => { setOverrides(data); setLoaded(true) }).catch(() => setLoaded(true))
+  }, [])
+
+  const setOverride = async (agent, model) => {
+    const next = { ...overrides, [agent]: model }
+    if (!model) delete next[agent]
+    setOverrides(next)
+    await api.setAgentModels(next)
+  }
+
+  if (!loaded) return <div className="text-xs text-slate-500 py-2">Loading...</div>
+
+  return (
+    <div className="space-y-2">
+      {agents.filter(a => a.id !== 'general').map(agent => (
+        <div key={agent.id} className="flex items-center gap-3 p-3 bg-surface-2 rounded-xl">
+          <span className="text-base">{agent.icon}</span>
+          <div className="flex-1">
+            <div className="text-sm text-white font-medium">{agent.name}</div>
+            <div className="text-xs text-slate-500 capitalize">{agent.id}</div>
+          </div>
+          <select
+            value={overrides[agent.id] || ''}
+            onChange={e => setOverride(agent.id, e.target.value)}
+            className="text-xs bg-surface-3 border border-white/10 rounded-lg px-2 py-1.5 text-slate-300 max-w-36">
+            <option value="">Use default</option>
+            {models.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function StatusBadge({ status }) {
   if (status === 'connected') return (
     <span className="flex items-center gap-1 text-xs text-accent-green">
@@ -28,6 +67,14 @@ export default function SettingsView() {
   const [checking, setChecking] = useState(false)
   const [saved, setSaved] = useState(false)
 
+  const [agentPrompts, setAgentPrompts] = useState({})
+  const [selectedAgent, setSelectedAgent] = useState('')
+  const [promptText, setPromptText] = useState('')
+
+  const [mcpServers, setMcpServers] = useState([])
+  const [expandedServer, setExpandedServer] = useState('')
+  const [serverTools, setServerTools] = useState({})
+
   const checkHealth = async () => {
     setChecking(true)
     try {
@@ -49,6 +96,28 @@ export default function SettingsView() {
     }
   }
 
+  const savePrompt = async () => {
+    if (!selectedAgent) return
+    await api.post(`/api/settings/agent-prompts/${selectedAgent}`, { prompt: promptText })
+    setAgentPrompts(prev => ({ ...prev, [selectedAgent]: { system: promptText } }))
+  }
+
+  const resetPrompt = async (agent) => {
+    await api.delete(`/api/settings/agent-prompts/${agent}`)
+    setAgentPrompts(prev => { const n = { ...prev }; delete n[agent]; return n })
+    if (selectedAgent === agent) setPromptText('')
+  }
+
+  const fetchServerTools = async (name) => {
+    if (serverTools[name]) return
+    try {
+      const data = await api.get(`/api/mcp/servers/${encodeURIComponent(name)}/tools`)
+      setServerTools(prev => ({ ...prev, [name]: data.tools || [] }))
+    } catch {
+      setServerTools(prev => ({ ...prev, [name]: [] }))
+    }
+  }
+
   const saveUrl = () => {
     setBackendUrl(urlInput.replace(/\/$/, ''))
     setSaved(true)
@@ -56,6 +125,14 @@ export default function SettingsView() {
   }
 
   useEffect(() => { checkHealth() }, [])
+
+  useEffect(() => {
+    api.get('/api/settings/agent-prompts').then(setAgentPrompts).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    api.get('/api/mcp/servers').then(data => setMcpServers(data.servers || [])).catch(() => {})
+  }, [])
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -154,6 +231,114 @@ export default function SettingsView() {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Agent Models */}
+        <div className="glass rounded-2xl border border-white/10 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Brain size={16} className="text-accent-purple" />
+            <h2 className="font-semibold text-white">Agent Models</h2>
+          </div>
+          <p className="text-xs text-slate-500 mb-4">Override the default model per agent. Each agent will use its assigned model instead of the default.</p>
+          <AgentModelsSection models={models} agents={agents} />
+        </div>
+
+        {/* Agent Prompts */}
+        <div className="glass rounded-2xl border border-white/10 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-base">📝</span>
+            <h2 className="font-semibold text-white">Agent Prompts</h2>
+          </div>
+          <p className="text-xs text-slate-500 mb-4">Override system prompts per agent. Leave empty to use defaults.</p>
+          <div className="space-y-3">
+            <select
+              value={selectedAgent}
+              onChange={e => {
+                setSelectedAgent(e.target.value)
+                setPromptText(agentPrompts[e.target.value]?.system || '')
+              }}
+              className="w-full text-sm bg-surface-3 border border-white/10 rounded-xl px-3 py-2 text-slate-300">
+              <option value="">Select an agent…</option>
+              {agents.filter(a => a.id !== 'general').map(a => (
+                <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
+              ))}
+            </select>
+            {selectedAgent && (
+              <>
+                <textarea
+                  value={promptText}
+                  onChange={e => setPromptText(e.target.value)}
+                  rows={8}
+                  className="w-full text-xs font-mono bg-surface-3 border border-white/10 rounded-xl px-3 py-2 text-slate-300 resize-y"
+                  placeholder={`Default prompt for ${selectedAgent}…`}
+                />
+                <div className="flex gap-2">
+                  <button onClick={savePrompt} className="btn-primary text-xs px-4 py-2">
+                    Save Override
+                  </button>
+                  <button
+                    onClick={() => resetPrompt(selectedAgent)}
+                    className="btn-ghost text-xs px-4 py-2 text-red-400 hover:text-red-300">
+                    Reset to Default
+                  </button>
+                </div>
+                {agentPrompts[selectedAgent] && (
+                  <div className="text-xs text-accent-green">✓ Custom prompt saved</div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* MCP Servers */}
+        <div className="glass rounded-2xl border border-white/10 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Server size={16} className="text-accent-cyan" />
+            <h2 className="font-semibold text-white">MCP Servers</h2>
+          </div>
+          {mcpServers.length > 0 ? (
+            <div className="space-y-2">
+              {mcpServers.map(server => (
+                <div key={server.name} className="bg-surface-2 rounded-xl overflow-hidden">
+                  <button
+                    onClick={() => {
+                      if (expandedServer === server.name) {
+                        setExpandedServer('')
+                        return
+                      }
+                      setExpandedServer(server.name)
+                      fetchServerTools(server.name)
+                    }}
+                    className="w-full flex items-center gap-3 p-3 text-left">
+                    <div className={`w-2 h-2 rounded-full ${server.status === 'connected' ? 'bg-accent-green' : 'bg-red-400'}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-white font-medium">{server.name}</div>
+                      <div className="text-xs text-slate-500 truncate">{server.url}</div>
+                    </div>
+                    <span className="text-xs text-slate-400">{server.tools} tool{server.tools !== 1 ? 's' : ''}</span>
+                  </button>
+                  {expandedServer === server.name && (
+                    <div className="px-3 pb-3 space-y-1">
+                      {serverTools[server.name]?.length > 0 ? (
+                        serverTools[server.name].map(tool => (
+                          <div key={tool.name} className="text-xs bg-surface-3 rounded-lg p-2">
+                            <span className="text-accent-purple font-mono">{tool.name}</span>
+                            {tool.description && <p className="text-slate-500 mt-0.5">{tool.description}</p>}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-xs text-slate-500 py-2 text-center">No tools available</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-6 text-slate-500 text-sm">
+              No MCP servers configured.
+            </div>
+          )}
         </div>
 
         {/* Data */}

@@ -130,6 +130,8 @@ async def dashboard(current_user: dict = Depends(get_current_user)):
         },
         "recent_activity": state.stats.get("recent_activity", []),
         "start_time": state.START_TIME,
+        "total_tokens_prompt": state.total_tokens_prompt,
+        "total_tokens_completion": state.total_tokens_completion,
     }
 
 

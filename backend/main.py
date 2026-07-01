@@ -6,6 +6,7 @@ Routes are in backend/routes/.
 import asyncio
 import json
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -26,6 +27,7 @@ from starlette.requests import Request as StarRequest
 # ── Internal ────────────────────────────────────────────────────────────────────
 from . import state
 from . import engine  # noqa: F401 — registers call_ollama, stream_ollama, ralph_loop, extract_and_save_files
+from . import conversations
 from .auth import AuthManager, get_current_user, set_auth_manager, set_auth_required
 from .backup import init as backup_init
 from . import backup as backup_mod
@@ -42,9 +44,57 @@ from .model_hub import router as hub_router
 # ── Re-export for tests ─────────────────────────────────────────────────────────
 from .engine import call_ollama, stream_ollama, ralph_loop, extract_and_save_files
 
+# ── Lifespan ────────────────────────────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async def scheduler_loop():
+        while True:
+            await asyncio.sleep(60)
+            if not state.scheduler:
+                continue
+            due = state.scheduler.get_due_tasks()
+            for t in due:
+                try:
+                    sys_p = AGENT_SYSTEMS.get(t["agent"], AGENT_SYSTEMS["general"])
+                    out = await call_ollama(t["model"], [{"role": "user", "content": t["prompt"]}], sys_p)
+                    state.scheduler.mark_ran(t["id"], out)
+                    extract_and_save_files(out)
+                    track("scheduler_auto_ran", t["name"])
+                except Exception as e:
+                    track("scheduler_error", str(e))
+
+    async def token_cleanup_loop():
+        while True:
+            await asyncio.sleep(3600)
+            if state.auth:
+                state.auth.cleanup_expired_tokens()
+
+    async def start_telegram():
+        async def task_cb(task, model, agent):
+            sys_p = AGENT_SYSTEMS.get(agent, AGENT_SYSTEMS["general"])
+            skl = get_skills_for_agent(agent)
+            return await call_ollama(model, [{"role": "user", "content": task}], sys_p + "\n\n" + skl)
+
+        telegram_bot.set_task_callback(task_cb)
+        telegram_bot.set_chat_callback(stream_ollama)
+        await telegram_bot.start()
+
+    bg_tasks = [
+        asyncio.create_task(scheduler_loop()),
+        asyncio.create_task(token_cleanup_loop()),
+        asyncio.create_task(start_telegram()),
+    ]
+
+    yield
+
+    for t in bg_tasks:
+        t.cancel()
+    await telegram_bot.stop()
+
+
 # ── App + Rate Limiter ─────────────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
-app = FastAPI(title="KreativOS", version="1.1.0")
+app = FastAPI(title="KreativOS", version="1.1.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
@@ -82,6 +132,8 @@ state.stats = {
     "pipelines_run": 0, "searches_run": 0, "start_time": state.START_TIME,
     "tasks_by_agent": defaultdict(int), "recent_activity": [],
 }
+state.total_tokens_prompt = 0
+state.total_tokens_completion = 0
 
 
 def track(event: str, detail: str = ""):
@@ -96,6 +148,7 @@ state.track = track
 
 # ── Services ───────────────────────────────────────────────────────────────────
 def init_services():
+    conversations.init_db(state.WORKSPACE_DIR)
     state.memory = ProjectMemory(state.WORKSPACE_DIR)
     state.scheduler = TaskScheduler(state.WORKSPACE_DIR)
     state.auth = AuthManager(state.WORKSPACE_DIR)
@@ -177,48 +230,4 @@ if FRONTEND_DIST.exists():
         return FileResponse(FRONTEND_DIST / "index.html")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  STARTUP / SHUTDOWN
-# ═══════════════════════════════════════════════════════════════════════════════
-@app.on_event("startup")
-async def startup():
-    async def scheduler_loop():
-        while True:
-            await asyncio.sleep(60)
-            if not state.scheduler:
-                continue
-            due = state.scheduler.get_due_tasks()
-            for t in due:
-                try:
-                    sys_p = AGENT_SYSTEMS.get(t["agent"], AGENT_SYSTEMS["general"])
-                    out = await call_ollama(t["model"], [{"role": "user", "content": t["prompt"]}], sys_p)
-                    state.scheduler.mark_ran(t["id"], out)
-                    extract_and_save_files(out)
-                    track("scheduler_auto_ran", t["name"])
-                except Exception as e:
-                    track("scheduler_error", str(e))
 
-    async def token_cleanup_loop():
-        while True:
-            await asyncio.sleep(3600)
-            if state.auth:
-                state.auth.cleanup_expired_tokens()
-
-    async def start_telegram():
-        async def task_cb(task, model, agent):
-            sys_p = AGENT_SYSTEMS.get(agent, AGENT_SYSTEMS["general"])
-            skl = get_skills_for_agent(agent)
-            return await call_ollama(model, [{"role": "user", "content": task}], sys_p + "\n\n" + skl)
-
-        telegram_bot.set_task_callback(task_cb)
-        telegram_bot.set_chat_callback(stream_ollama)
-        await telegram_bot.start()
-
-    asyncio.create_task(scheduler_loop())
-    asyncio.create_task(token_cleanup_loop())
-    asyncio.create_task(start_telegram())
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    await telegram_bot.stop()

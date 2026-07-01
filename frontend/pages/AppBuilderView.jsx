@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react'
+﻿import React, { useState, useEffect } from 'react'
 import { Blocks, Play, Download, Eye, FileText, RefreshCw } from 'lucide-react'
 import clsx from 'clsx'
 import useStore from '../store'
@@ -23,6 +23,19 @@ export default function AppBuilderView() {
   const [result, setResult] = useState(null)
   const [previewFile, setPreviewFile] = useState(null)
   const [previewContent, setPreviewContent] = useState('')
+  const [webPreviewHtml, setWebPreviewHtml] = useState('')
+
+  // Auto-preview first HTML file for web apps
+  useEffect(() => {
+    if (result && appType === 'web' && result.saved_files?.length) {
+      const htmlFile = result.saved_files.find(f => f.endsWith('.html'))
+      if (htmlFile) {
+        api.previewFile(htmlFile).then(d => setWebPreviewHtml(d.content || '')).catch(() => {})
+      }
+    } else {
+      setWebPreviewHtml('')
+    }
+  }, [result, appType])
 
   const build = async () => {
     if (!description.trim() || !selectedModel || running) return
@@ -155,7 +168,12 @@ export default function AppBuilderView() {
                 </div>
               )}
 
-              <MessageRenderer content={result.output||''} />
+              {webPreviewHtml ? (
+                <iframe srcDoc={webPreviewHtml} sandbox="allow-scripts"
+                  className="w-full h-[600px] border border-zinc-700 rounded-lg bg-white" title="Live Preview" />
+              ) : (
+                <MessageRenderer content={result.output||''} />
+              )}
             </div>
           )}
         </div>

@@ -71,6 +71,9 @@ async def stream_ollama(
                         break
                 except Exception:
                     continue
+                if d.get("done"):
+                    state.total_tokens_prompt += d.get("prompt_eval_count", 0) or 0
+                    state.total_tokens_completion += d.get("eval_count", 0) or 0
 
 
 async def call_ollama(model: str, messages: list, system: str) -> str:
@@ -83,6 +86,8 @@ async def call_ollama(model: str, messages: list, system: str) -> str:
     data = resp.json()
     if "error" in data:
         raise RuntimeError(f"Ollama error: {data['error']}")
+    state.total_tokens_prompt += data.get("prompt_eval_count", 0) or 0
+    state.total_tokens_completion += data.get("eval_count", 0) or 0
     return data.get("message", {}).get("content", "")
 
 

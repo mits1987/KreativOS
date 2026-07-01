@@ -3,6 +3,8 @@ KreativOS — Chat & Task Routes (streaming, tasks, pipeline, orchestrate)
 """
 import asyncio
 import json
+import shutil
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -13,6 +15,8 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from .. import state
+from .. import conversations
+from .. import run_history
 from .. import backup as backup_mod
 from ..config import AGENT_SYSTEMS, AGENT_PERSONAS, get_skills_for_agent
 from ..context_manager import build_full_system_prompt
@@ -21,13 +25,17 @@ from ..engine import (
 )
 from ..auth import get_current_user
 from ..orchestrator import orchestrate as run_orchestration
-from ..pipeline import PIPELINE_TEMPLATES, run_pipeline
+from ..pipeline import get_all_templates, save_user_template, delete_user_template, run_pipeline
 from ..sandbox import run_code_sandboxed
 from ..web_search import duckduckgo_search, format_results_for_agent
+from ..telegram_utils import send_telegram_artifact
+from .. import github_client as gh
+from .. import knowledge
 from .. import permissions as perms
 from ..auth import AUTH_REQUIRED
 
-_PROTECTED = {".memory", ".auth", ".scheduler", ".workflows", ".backups", ".skill_eval", ".audit"}
+_PROTECTED = {".memory", ".auth", ".scheduler", ".workflows", ".backups", ".skill_eval", ".audit", ".versions"}
+_running_tasks: dict[str, tuple[asyncio.Task, asyncio.Event]] = {}
 
 router = APIRouter(tags=["chat"])
 limiter = Limiter(key_func=get_remote_address)
@@ -131,7 +139,7 @@ async def list_files(limit: int = 50, offset: int = 0, current_user: dict = Depe
     all_files = []
     for f in state.WORKSPACE_DIR.rglob("*"):
         if f.is_file() and not any(
-            p in str(f) for p in [".memory", ".auth", ".scheduler", ".workflows", ".backups", ".skill_eval", ".audit"]
+            p in str(f) for p in [".memory", ".auth", ".scheduler", ".workflows", ".backups", ".skill_eval", ".audit", ".versions"]
         ):
             all_files.append({
                 "name": str(f.relative_to(state.WORKSPACE_DIR)),
@@ -152,11 +160,49 @@ async def write_file(req: FileWriteRequest, current_user: dict = Depends(get_cur
     perm = _check_file_permission(str(fp), "write")
     if perm:
         raise HTTPException(403, detail=str(perm))
+    if fp.exists():
+        versions_dir = Path(state.WORKSPACE_DIR) / ".versions"
+        versions_dir.mkdir(exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"{raw}__{ts}"
+        shutil.copy2(str(fp), str(versions_dir / backup_name))
     fp.parent.mkdir(parents=True, exist_ok=True)
     fp.write_text(req.content)
     state.stats["files_created"] = state.stats.get("files_created", 0) + 1
     state.track("file_saved", raw)
     return {"success": True, "path": str(fp)}
+
+
+@router.get("/api/files/{filename:path}/history")
+async def file_history(filename: str, current_user: dict = Depends(get_current_user)):
+    versions_dir = Path(state.WORKSPACE_DIR) / ".versions"
+    if not versions_dir.exists():
+        return []
+    prefix = f"{filename}__"
+    versions = []
+    for f in sorted(versions_dir.iterdir(), reverse=True):
+        if f.is_file() and f.name.startswith(prefix):
+            ts = f.name[len(prefix):]
+            versions.append({
+                "filename": f.name,
+                "timestamp": ts,
+                "size": f.stat().st_size,
+            })
+    return versions
+
+
+@router.post("/api/files/restore/{backup_name:path}")
+async def restore_file_version(backup_name: str, current_user: dict = Depends(get_current_user)):
+    versions_dir = Path(state.WORKSPACE_DIR) / ".versions"
+    backup_path = versions_dir / backup_name
+    if not backup_path.exists():
+        raise HTTPException(404, "Version not found")
+    original_name = backup_name.rsplit("__", 1)[0]
+    target = Path(state.WORKSPACE_DIR) / original_name
+    if not target.parent.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(str(backup_path), str(target))
+    return {"ok": True, "restored": original_name}
 
 
 @router.get("/api/files/read/{filename:path}")
@@ -235,6 +281,53 @@ async def chat_stream(request: Request, req: ChatRequest, current_user: dict = D
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
+# ── Conversations (SQLite persistence) ────────────────────────────────────────
+@router.get("/api/conversations")
+async def list_convs(limit: int = 50, offset: int = 0):
+    return conversations.list_conversations(state.WORKSPACE_DIR, limit, offset)
+
+
+@router.get("/api/conversations/search")
+async def search_convs(q: str = "", limit: int = 20):
+    if not q:
+        return []
+    return conversations.search_conversations(state.WORKSPACE_DIR, q, limit)
+
+
+@router.get("/api/conversations/{conv_id}")
+async def get_conv(conv_id: str):
+    conv = conversations.get_conversation(state.WORKSPACE_DIR, conv_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    return conv
+
+
+@router.post("/api/conversations")
+async def create_conv(data: dict):
+    return conversations.create_conversation(
+        state.WORKSPACE_DIR,
+        title=data.get("title", "New Chat"),
+        model=data.get("model", "")
+    )
+
+
+@router.post("/api/conversations/{conv_id}/messages")
+async def add_msg(conv_id: str, data: dict):
+    return conversations.add_message(
+        state.WORKSPACE_DIR, conv_id,
+        data.get("role", "user"),
+        data.get("content", "")
+    )
+
+
+@router.delete("/api/conversations/{conv_id}")
+async def delete_conv(conv_id: str):
+    ok = conversations.delete_conversation(state.WORKSPACE_DIR, conv_id)
+    if not ok:
+        raise HTTPException(404, "Conversation not found")
+    return {"ok": True}
+
+
 # ── Tasks ─────────────────────────────────────────────────────────────────────
 @router.post("/api/task/run")
 @limiter.limit("10/minute")
@@ -243,30 +336,42 @@ async def run_task(request: Request, req: TaskRequest, current_user: dict = Depe
     state.stats["tasks_by_agent"] = state.stats.get("tasks_by_agent", {})
     state.stats["tasks_by_agent"][req.agent_type] = state.stats["tasks_by_agent"].get(req.agent_type, 0) + 1
     state.track("task_start", f"{req.agent_type}: {req.task[:50]}")
-    sys_prompt = AGENT_SYSTEMS.get(req.agent_type, AGENT_SYSTEMS["general"])
-    skills = get_skills_for_agent(req.agent_type)
-    mem = state.memory.build_context(req.project) if req.project and state.memory else ""
-    full = build_full_system_prompt(sys_prompt, skills, mem)
-    out = await call_ollama(req.model, [{"role": "user", "content": req.task}], full)
-    saved = extract_and_save_files(out, req.project)
-    ralph = None
-    if req.use_ralph_loop and req.agent_type in ("coder", "architect", "devops"):
-        ralph = await ralph_loop(req.model, req.task, out, req.agent_type)
-        out = ralph["output"]
-        saved += extract_and_save_files(out, req.project)
-    if req.project and state.memory:
-        state.memory.add_decision(req.project, f"{req.agent_type}: {req.task[:60]}", req.agent_type)
-    if state.audit_log:
-        state.audit_log.log("task_done", req.task[:80], agent=req.agent_type)
-    state.track("task_done", req.agent_type)
-    return {
-        "task": req.task,
-        "agent": AGENT_PERSONAS.get(req.agent_type, AGENT_PERSONAS["general"])["name"],
-        "result": out,
-        "saved_files": list(set(saved)),
-        "ralph": ralph,
-        "timestamp": datetime.now().isoformat(),
-    }
+    run_id = str(uuid.uuid4())[:12]
+    run_history.record_run_start(run_id, task_id="", conv_id="", agent_name=req.agent_type, workflow_name="task")
+    try:
+        sys_prompt = AGENT_SYSTEMS.get(req.agent_type, AGENT_SYSTEMS["general"])
+        skills = get_skills_for_agent(req.agent_type)
+        mem = state.memory.build_context(req.project) if req.project and state.memory else ""
+        full = build_full_system_prompt(sys_prompt, skills, mem)
+        out = await call_ollama(req.model, [{"role": "user", "content": req.task}], full)
+        saved = extract_and_save_files(out, req.project)
+        for f in saved:
+            asyncio.create_task(send_telegram_artifact(str(state.WORKSPACE_DIR / f), f"Task generated: {Path(f).name}"))
+        ralph = None
+        if req.use_ralph_loop and req.agent_type in ("coder", "architect", "devops"):
+            ralph = await ralph_loop(req.model, req.task, out, req.agent_type)
+            out = ralph["output"]
+            n = len(saved)
+            saved += extract_and_save_files(out, req.project)
+            for f in saved[n:]:
+                asyncio.create_task(send_telegram_artifact(str(state.WORKSPACE_DIR / f), f"Task generated: {Path(f).name}"))
+        if req.project and state.memory:
+            state.memory.add_decision(req.project, f"{req.agent_type}: {req.task[:60]}", req.agent_type)
+        if state.audit_log:
+            state.audit_log.log("task_done", req.task[:80], agent=req.agent_type)
+        state.track("task_done", req.agent_type)
+        run_history.record_run_end(run_id, "completed", files_generated=list(set(saved)))
+        return {
+            "task": req.task,
+            "agent": AGENT_PERSONAS.get(req.agent_type, AGENT_PERSONAS["general"])["name"],
+            "result": out,
+            "saved_files": list(set(saved)),
+            "ralph": ralph,
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        run_history.record_run_end(run_id, "failed", error=str(e))
+        raise
 
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
@@ -282,18 +387,86 @@ async def orchestrate_endpoint(request: Request, body: dict, current_user: dict 
     if state.audit_log:
         state.audit_log.log("orchestrate", f"Task: {task[:80]}", user=current_user.get("username"))
 
+    task_id = uuid.uuid4().hex[:8]
+    cancel_event = asyncio.Event()
+
     async def event_stream():
-        async for event in run_orchestration(task, model, project, state.WORKSPACE_DIR, state.OLLAMA_BASE_URL):
-            yield f"data: {json.dumps(event)}\n\n"
+        t = asyncio.current_task()
+        _running_tasks[task_id] = (t, cancel_event)
+        try:
+            async for event in run_orchestration(task, model, project, state.WORKSPACE_DIR, state.OLLAMA_BASE_URL, cancel_event, conv_id=body.get("conv_id", "")):
+                yield f"data: {json.dumps(event)}\n\n"
+        except asyncio.CancelledError:
+            yield f"data: {json.dumps({'type': 'cancelled', 'task_id': task_id})}\n\n"
+        finally:
+            _running_tasks.pop(task_id, None)
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+# ── Task Cancel ───────────────────────────────────────────────────────────────
+@router.get("/api/tasks")
+async def list_running_tasks(current_user: dict = Depends(get_current_user)):
+    tasks = []
+    for tid, (t, _) in list(_running_tasks.items()):
+        if t.done():
+            status = "cancelled" if t.cancelled() else "done"
+        else:
+            status = "running"
+        tasks.append({"id": tid, "status": status})
+    return {"tasks": tasks}
+
+
+@router.post("/api/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str, current_user: dict = Depends(get_current_user)):
+    entry = _running_tasks.get(task_id)
+    if not entry:
+        raise HTTPException(404, "Task not found")
+    task, cancel_event = entry
+    cancel_event.set()
+    task.cancel()
+    return {"ok": True}
+
+
+# ── Run History ────────────────────────────────────────────────────────────────
+@router.get("/api/runs")
+async def list_runs(limit: int = 50, conv_id: str = None):
+    return run_history.get_recent_runs(limit=limit, conv_id=conv_id)
+
+@router.get("/api/runs/stats")
+async def run_stats():
+    return run_history.get_run_stats()
+
+
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 @router.get("/api/pipeline/templates")
 async def pipeline_templates(current_user: dict = Depends(get_current_user)):
-    return {"templates": [{"id": k, "steps": [s["label"] for s in v]} for k, v in PIPELINE_TEMPLATES.items()]}
+    templates = get_all_templates(state.WORKSPACE_DIR)
+    return {"templates": [{"id": k, "steps": [s["label"] for s in v]} for k, v in templates.items()]}
+
+
+@router.get("/api/pipelines")
+async def list_pipelines(current_user: dict = Depends(get_current_user)):
+    """Return all pipeline templates (built-in + user-defined)."""
+    return get_all_templates(state.WORKSPACE_DIR)
+
+
+@router.post("/api/pipelines")
+async def save_pipeline(data: dict, current_user: dict = Depends(get_current_user)):
+    name = data.get("name", "")
+    phases = data.get("phases", [])
+    if not name or not phases:
+        raise HTTPException(400, "name and phases required")
+    return save_user_template(state.WORKSPACE_DIR, name, phases)
+
+
+@router.delete("/api/pipelines/{name}")
+async def delete_pipeline(name: str, current_user: dict = Depends(get_current_user)):
+    ok = delete_user_template(state.WORKSPACE_DIR, name)
+    if not ok:
+        raise HTTPException(404, "Pipeline not found")
+    return {"ok": True}
 
 
 @router.post("/api/pipeline/run")
@@ -303,25 +476,85 @@ async def run_pipeline_route(request: Request, req: PipelineRequest, current_use
     state.stats["total_tasks"] = state.stats.get("total_tasks", 0) + 1
     state.track("pipeline_start", f"{req.template}: {req.task[:50]}")
 
+    task_id = uuid.uuid4().hex[:8]
+    cancel_event = asyncio.Event()
+
     async def generate():
-        async for event in run_pipeline(
-            task=req.task, template=req.template, model=req.model,
-            call_ollama_fn=call_ollama, agent_systems=AGENT_SYSTEMS,
-            get_skills_fn=get_skills_for_agent, ralph_fn=ralph_loop,
-            workspace_dir=state.WORKSPACE_DIR, track_fn=state.track,
-            extract_fn=lambda t: extract_and_save_files(t, req.project),
-            skip_ralph=req.skip_ralph,
-        ):
-            yield f"data: {json.dumps(event)}\n\n"
-            if event["type"] == "done":
-                if req.project and state.memory:
-                    state.memory.add_decision(req.project, f"Pipeline '{req.template}' run: {req.task[:60]}", "orchestrator")
-                if state.audit_log:
-                    state.audit_log.log("pipeline_done", req.template)
-                state.track("pipeline_done", req.template)
+        t = asyncio.current_task()
+        _running_tasks[task_id] = (t, cancel_event)
+        try:
+            async for event in run_pipeline(
+                task=req.task, template=req.template, model=req.model,
+                call_ollama_fn=call_ollama, agent_systems=AGENT_SYSTEMS,
+                get_skills_fn=get_skills_for_agent, ralph_fn=ralph_loop,
+                workspace_dir=state.WORKSPACE_DIR, track_fn=state.track,
+                extract_fn=lambda t: extract_and_save_files(t, req.project),
+                skip_ralph=req.skip_ralph,
+                cancel_event=cancel_event,
+            ):
+                yield f"data: {json.dumps(event)}\n\n"
+                if event["type"] == "done":
+                    if req.project and state.memory:
+                        state.memory.add_decision(req.project, f"Pipeline '{req.template}' run: {req.task[:60]}", "orchestrator")
+                    if state.audit_log:
+                        state.audit_log.log("pipeline_done", req.template)
+                    state.track("pipeline_done", req.template)
+        except asyncio.CancelledError:
+            yield f"data: {json.dumps({'type': 'cancelled', 'task_id': task_id})}\n\n"
+        finally:
+            _running_tasks.pop(task_id, None)
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ── Agent Models ──────────────────────────────────────────────────────────────
+@router.get("/api/settings/agent-models")
+async def get_agent_models(current_user: dict = Depends(get_current_user)):
+    fp = state.WORKSPACE_DIR / ".agent_models.json"
+    if fp.exists():
+        return json.loads(fp.read_text(encoding="utf-8"))
+    return {}
+
+
+@router.post("/api/settings/agent-models")
+async def set_agent_models(data: dict, current_user: dict = Depends(get_current_user)):
+    fp = state.WORKSPACE_DIR / ".agent_models.json"
+    tmp = fp.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    tmp.replace(fp)
+    return {"ok": True}
+
+
+# ── Agent Prompts ─────────────────────────────────────────────────────────────
+@router.get("/api/settings/agent-prompts")
+async def get_agent_prompts(current_user: dict = Depends(get_current_user)):
+    prompts_dir = Path(state.WORKSPACE_DIR) / ".agent_prompts"
+    overrides = {}
+    if prompts_dir.exists():
+        for f in prompts_dir.glob("*.json"):
+            overrides[f.stem] = json.loads(f.read_text(encoding="utf-8"))
+    return overrides
+
+
+@router.post("/api/settings/agent-prompts/{agent_id}")
+async def set_agent_prompt(agent_id: str, data: dict, current_user: dict = Depends(get_current_user)):
+    prompt = data.get("prompt", "")
+    prompts_dir = Path(state.WORKSPACE_DIR) / ".agent_prompts"
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+    fp = prompts_dir / f"{agent_id}.json"
+    tmp = fp.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"system": prompt}, indent=2), encoding="utf-8")
+    tmp.replace(fp)
+    return {"ok": True, "agent": agent_id}
+
+
+@router.delete("/api/settings/agent-prompts/{agent_id}")
+async def delete_agent_prompt(agent_id: str, current_user: dict = Depends(get_current_user)):
+    fp = Path(state.WORKSPACE_DIR) / ".agent_prompts" / f"{agent_id}.json"
+    if fp.exists():
+        fp.unlink()
+    return {"ok": True}
 
 
 # ── Memory ────────────────────────────────────────────────────────────────────
@@ -352,6 +585,23 @@ async def delete_memory(project: str, current_user: dict = Depends(get_current_u
     return {"success": True}
 
 
+# ── GitHub ────────────────────────────────────────────────────────────────────
+@router.get("/api/github/repos")
+async def github_list_repos():
+    repos = await gh.list_repos()
+    return repos
+
+@router.post("/api/github/issues")
+async def github_create_issue(data: dict):
+    result = await gh.create_issue(data["owner"], data["repo"], data["title"], data.get("body", ""), data.get("labels"))
+    return result
+
+@router.post("/api/github/commit")
+async def github_commit_file(data: dict):
+    result = await gh.commit_file(data["owner"], data["repo"], data["path"], data["content"], data["message"], data.get("branch", "main"))
+    return result
+
+
 # ── Web Search ────────────────────────────────────────────────────────────────
 @router.get("/api/search")
 async def web_search(q: str, max_results: int = 5, current_user: dict = Depends(get_current_user)):
@@ -359,6 +609,42 @@ async def web_search(q: str, max_results: int = 5, current_user: dict = Depends(
     state.track("web_search", q[:60])
     results = await duckduckgo_search(q, max_results)
     return {"query": q, "results": results}
+
+
+# ── Knowledge / RAG ──────────────────────────────────────────────────────────
+@router.post("/api/knowledge/upload")
+async def upload_document(request: Request):
+    import tempfile
+    form = await request.form()
+    file = form.get("file")
+    if not file:
+        raise HTTPException(400, "No file provided")
+    content = await file.read()
+    suffix = Path(file.filename).suffix or ".txt"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(content)
+    tmp.close()
+    result = knowledge.ingest_document(state.WORKSPACE_DIR, Path(tmp.name))
+    os.unlink(tmp.name)
+    return result
+
+
+@router.get("/api/knowledge/search")
+async def search_knowledge_route(q: str = "", top_k: int = 5):
+    return knowledge.search_knowledge(state.WORKSPACE_DIR, q, top_k)
+
+
+@router.get("/api/knowledge/documents")
+async def list_knowledge_docs():
+    return knowledge.list_documents(state.WORKSPACE_DIR)
+
+
+@router.delete("/api/knowledge/documents/{doc_id}")
+async def delete_knowledge_doc(doc_id: str):
+    ok = knowledge.delete_document(state.WORKSPACE_DIR, doc_id)
+    if not ok:
+        raise HTTPException(404, "Document not found")
+    return {"ok": True}
 
 
 # ── App Builder ───────────────────────────────────────────────────────────────
@@ -391,6 +677,8 @@ async def generate_app(request: Request, body: dict, current_user: dict = Depend
         ralph = await ralph_loop(model, description, output, "coder")
         output = ralph["output"]
     saved = extract_and_save_files(output, project)
+    for f in saved:
+        asyncio.create_task(send_telegram_artifact(str(state.WORKSPACE_DIR / f), f"App generated: {Path(f).name}"))
     if project and state.memory:
         state.memory.add_decision(project, f"Built {app_type} app: {description[:60]}", "coder")
     return {"description": description, "output": output, "saved_files": saved, "ralph": ralph, "timestamp": datetime.now().isoformat()}
@@ -425,6 +713,38 @@ def _save_workflows(wf: list):
 @router.get("/api/canvas/workflows")
 async def get_workflows(current_user: dict = Depends(get_current_user)):
     return {"workflows": _load_workflows()}
+
+
+@router.get("/api/canvas/workflows/{wf_id}/export")
+async def export_workflow(wf_id: str, current_user: dict = Depends(get_current_user)):
+    workflows = _load_workflows()
+    wf = next((w for w in workflows if w["id"] == wf_id), None)
+    if not wf:
+        raise HTTPException(404, "Workflow not found")
+    return JSONResponse(
+        content=wf,
+        headers={"Content-Disposition": f"attachment; filename=workflow-{wf_id}.json"}
+    )
+
+
+@router.post("/api/canvas/workflows/import")
+async def import_workflow(data: dict, current_user: dict = Depends(get_current_user)):
+    name = data.get("name") or data.get("id", "imported")
+    wf_id = data.get("id", name)
+    import uuid
+    wf = {
+        "id": wf_id, "name": name,
+        "description": data.get("description", ""),
+        "nodes": data.get("nodes", []),
+        "edges": data.get("edges", []),
+        "created": data.get("created", datetime.now().isoformat()),
+    }
+    workflows = _load_workflows()
+    # replace if same id, else append
+    workflows = [w for w in workflows if w["id"] != wf_id]
+    workflows.append(wf)
+    _save_workflows(workflows)
+    return {"ok": True, "id": wf_id, "name": name}
 
 
 @router.post("/api/canvas/workflows")
@@ -491,6 +811,8 @@ async def run_workflow(wf_id: str, body: dict, current_user: dict = Depends(get_
         )
         out = await call_ollama(model, [{"role": "user", "content": context}], sys_p)
         saved = extract_and_save_files(out)
+        for f in saved:
+            asyncio.create_task(send_telegram_artifact(str(state.WORKSPACE_DIR / f), f"Workflow {label}: {Path(f).name}"))
         handoff = None
         for line in out.split("\n"):
             if line.strip().startswith("HANDOFF:"):
@@ -501,7 +823,10 @@ async def run_workflow(wf_id: str, body: dict, current_user: dict = Depends(get_
         if handoff and handoff in AGENT_SYSTEMS:
             h_sys = build_full_system_prompt(AGENT_SYSTEMS[handoff], skills=get_skills_for_agent(handoff))
             h_out = await call_ollama(model, [{"role": "user", "content": context}], h_sys)
-            results.append({"node": f"Handoff → {handoff}", "agent": handoff, "output": h_out, "saved_files": extract_and_save_files(h_out)})
+            h_saved = extract_and_save_files(h_out)
+            for f in h_saved:
+                asyncio.create_task(send_telegram_artifact(str(state.WORKSPACE_DIR / f), f"Workflow handoff {handoff}: {Path(f).name}"))
+            results.append({"node": f"Handoff → {handoff}", "agent": handoff, "output": h_out, "saved_files": h_saved})
             context += f"\n\n[Handoff {handoff}]: {h_out}"
     return {"workflow": wf["name"], "task": task, "results": results, "timestamp": datetime.now().isoformat()}
 
@@ -556,6 +881,8 @@ async def run_due_tasks(body: dict, current_user: dict = Depends(get_current_use
         out = await call_ollama(t["model"], [{"role": "user", "content": t["prompt"]}], sys_p)
         state.scheduler.mark_ran(t["id"], out)
         saved = extract_and_save_files(out)
+        for f in saved:
+            asyncio.create_task(send_telegram_artifact(str(state.WORKSPACE_DIR / f), f"Scheduled {t['name']}: {Path(f).name}"))
         results.append({"task": t["name"], "output": out, "saved_files": saved})
         state.track("scheduler_ran", t["name"])
     return {"ran": len(results), "results": results}

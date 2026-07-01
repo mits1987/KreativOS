@@ -8,15 +8,20 @@ KreativOS — Orchestrator v3
 import asyncio
 import json
 import re
+import uuid
 import httpx
 from pathlib import Path
 from typing import AsyncGenerator
 
+from . import run_history
 from .config import AGENT_SYSTEMS
 from . import permissions as perms
+from . import knowledge
 from .sandbox import run_code_sandboxed
 from .web_search import duckduckgo_search
 from .mcp_client import call_tool as mcp_call_tool, load_servers as mcp_load_servers
+from .telegram_utils import send_telegram_artifact
+from . import github_client as gh
 
 # ── Permission signalling ──────────────────────────────────────────────────────
 _perm_events: dict[str, tuple] = {}
@@ -45,8 +50,12 @@ Available tools:
 - write_file   {"filename": "relative/path", "content": "text"} — write to workspace
 - execute_code {"code": "...", "language": "python"} — run code, get stdout/stderr
 - web_search   {"query": "..."} — search the web
+- search_knowledge {"query": "...", "top_k": 5} — semantic search over uploaded documents
 - call_mcp     {"server": "open-design", "tool": "generate_prototype", "args": {...}} — call an external MCP server tool
 - request_permission {"path": "/absolute/path", "operation": "read"} — ask user before accessing paths outside workspace
+- github_list_repos {} — list GitHub repos (requires GITHUB_TOKEN)
+- github_create_issue {"owner": "...", "repo": "...", "title": "..."} — create an issue on a repo
+- github_commit_file {"owner": "...", "repo": "...", "path": "...", "content": "...", "message": "..."} — create/update a file in a repo
 
 Rules:
 - For paths OUTSIDE the workspace, always call request_permission first.
@@ -173,6 +182,8 @@ async def _exec_tool(name: str, args: dict, workspace_dir: Path) -> str:
                 return "Error: write_file only allowed within workspace"
             fp.parent.mkdir(parents=True, exist_ok=True)
             fp.write_text(args.get("content", ""))
+            # ponytail: fire-and-forget telegram delivery — failures silently ignored
+            asyncio.create_task(send_telegram_artifact(str(fp), f"Agent wrote: {fp.name}"))
             return f"Written: {fp.name} ({len(args.get('content', ''))} chars)"
 
         elif name == "execute_code":
@@ -202,6 +213,25 @@ async def _exec_tool(name: str, args: dict, workspace_dir: Path) -> str:
             import uuid as _uuid
             req_id = _uuid.uuid4().hex[:12]
             return f"__ASK_PERMISSION__{req_id}__{args.get('path','')}__{args.get('operation','read')}"
+
+        elif name == "search_knowledge":
+            return json.dumps(knowledge.search_knowledge(
+                workspace_dir,
+                args.get("query", ""),
+                args.get("top_k", 5)
+            ))
+
+        elif name == "github_list_repos":
+            repos = await gh.list_repos()
+            return json.dumps(repos, indent=2) if repos else "No repos or GITHUB_TOKEN not set"
+
+        elif name == "github_create_issue":
+            result = await gh.create_issue(args["owner"], args["repo"], args["title"], args.get("body", ""), args.get("labels"))
+            return json.dumps(result, indent=2)
+
+        elif name == "github_commit_file":
+            result = await gh.commit_file(args["owner"], args["repo"], args["path"], args["content"], args["message"], args.get("branch", "main"))
+            return json.dumps(result, indent=2)
 
         else:
             return f"Unknown tool: {name}"
@@ -244,7 +274,8 @@ async def _handle_permission(result: str) -> tuple[str, dict | None]:
 
 async def _run_agent(agent: str, task: str, context: str,
                      model: str, workspace_dir: Path, ollama_url: str,
-                     custom_system: str = ""):
+                     custom_system: str = "",
+                     cancel_event: asyncio.Event | None = None):
     """ReAct loop for one agent. Yields event dicts."""
     base_system = custom_system or AGENT_SYSTEMS.get(agent, AGENT_SYSTEMS["general"])
     system = base_system + "\n\n" + TOOL_INSTRUCTIONS + _mcp_hint()
@@ -252,6 +283,9 @@ async def _run_agent(agent: str, task: str, context: str,
     messages = [{"role": "user", "content": user_content}]
 
     for _ in range(25):
+        if cancel_event and cancel_event.is_set():
+            yield {"type": "agent_output", "content": "[cancelled]"}
+            return
         response = await _llm(model, messages, system, ollama_url)
         matches  = list(TOOL_RE.finditer(response))
 
@@ -293,11 +327,23 @@ async def _self_score(agent: str, task: str, output: str,
 
 
 async def _run_to_queue(step: dict, context: str, model: str,
-                        workspace_dir: Path, ollama_url: str,
-                        queue: asyncio.Queue, outputs: dict):
+                         workspace_dir: Path, ollama_url: str,
+                         queue: asyncio.Queue, outputs: dict,
+                         cancel_event: asyncio.Event | None = None):
     """Run one agent and push all events to the shared queue."""
     agent   = step.get("agent", "general")
     task    = step.get("task", "")
+
+    # Per-agent model override
+    agent_models = {}
+    agent_models_file = workspace_dir / ".agent_models.json"
+    if agent_models_file.exists():
+        try:
+            agent_models = json.loads(agent_models_file.read_text())
+        except Exception:
+            pass
+    model = agent_models.get(agent, model)
+
     custom  = step.get("system_prompt", "") or _custom_agents.get(agent, "")
 
     # Register custom agent for future rounds
@@ -306,9 +352,20 @@ async def _run_to_queue(step: dict, context: str, model: str,
         if len(_custom_agents) > MAX_CUSTOM_AGENTS:
             _custom_agents.popitem(last=False)  # evict oldest
 
+    # Agent prompt override from file (Settings UI)
+    if not custom:
+        prompts_dir = workspace_dir / ".agent_prompts"
+        override_file = prompts_dir / f"{agent}.json"
+        if override_file.exists():
+            try:
+                override = json.loads(override_file.read_text(encoding="utf-8"))
+                custom = override.get("system", "")
+            except (json.JSONDecodeError, KeyError):
+                pass
+
     try:
         output = ""
-        async for event in _run_agent(agent, task, context, model, workspace_dir, ollama_url, custom):
+        async for event in _run_agent(agent, task, context, model, workspace_dir, ollama_url, custom, cancel_event=cancel_event):
             if event["type"] == "agent_output":
                 output = event["content"]
             await queue.put(event)
@@ -328,90 +385,103 @@ async def _run_to_queue(step: dict, context: str, model: str,
 
 
 async def orchestrate(task: str, model: str, project: str,
-                      workspace_dir: Path, ollama_url: str) -> AsyncGenerator[dict, None]:
+                       workspace_dir: Path, ollama_url: str,
+                       cancel_event: asyncio.Event | None = None,
+                       conv_id: str = "") -> AsyncGenerator[dict, None]:
 
-    # 1. Plan
-    yield {"type": "planning"}
+    run_id = str(uuid.uuid4())[:12]
+    run_history.record_run_start(run_id, task_id="", conv_id=conv_id, agent_name="orchestrator", workflow_name="")
+
     try:
-        raw_plan = await _llm(model, [{"role": "user", "content": task}], ORCHESTRATOR_SYSTEM, ollama_url)
-        plan     = _parse_json(raw_plan)
-        steps    = plan.get("steps") or []
-        if not steps:
-            raise ValueError("empty")
-    except Exception:
-        steps = [{"agent": "general", "task": task}]
-        plan  = {"plan_summary": "Direct execution", "steps": steps}
-
-    yield {"type": "plan", "summary": plan.get("plan_summary", ""), "steps": steps}
-
-    MAX_ROUNDS     = 3
-    audit_feedback = ""
-    all_outputs: dict[str, str] = {}
-
-    for round_num in range(1, MAX_ROUNDS + 1):
-        context = f"Original task: {task}\n"
-        if audit_feedback:
-            context += f"\nAuditor feedback (fix these):\n{audit_feedback}\n"
-
-        # Emit agent_start for every step upfront so UI shows all running in parallel
-        for step in steps:
-            agent_task = step.get("task", task)
-            if audit_feedback:
-                agent_task += f"\n\nFix: {audit_feedback}"
-            yield {"type": "agent_start", "agent": step["agent"], "task": agent_task, "round": round_num}
-
-        # 2. Run all agents in PARALLEL
-        queue   = asyncio.Queue()
-        outputs: dict[str, str] = {}
-        worker_tasks = [
-            asyncio.create_task(
-                _run_to_queue(
-                    {**step, "task": (step.get("task", task) + (f"\n\nFix: {audit_feedback}" if audit_feedback else ""))},
-                    context, model, workspace_dir, ollama_url, queue, outputs
-                )
-            )
-            for step in steps
-        ]
-
-        finished = 0
+        # 1. Plan
+        yield {"type": "planning"}
         try:
-            while finished < len(steps):
-                event = await queue.get()
-                if event["type"] == "agent_done":
-                    finished += 1
-                    all_outputs[event["agent"]] = event["output"]
-                yield event
-        finally:
-            for t in worker_tasks:
-                if not t.done():
-                    t.cancel()
-
-        # 3. Audit
-        yield {"type": "audit_start", "round": round_num}
-        combined     = "\n\n".join(f"=== {a.upper()} ===\n{o}" for a, o in all_outputs.items())
-        audit_prompt = f"Task: {task}\n\nWork done:\n{combined}"
-
-        try:
-            raw_audit = await _llm(model, [{"role": "user", "content": audit_prompt}], AUDITOR_SYSTEM, ollama_url)
-            audit     = _parse_json(raw_audit)
+            raw_plan = await _llm(model, [{"role": "user", "content": task}], ORCHESTRATOR_SYSTEM, ollama_url)
+            plan     = _parse_json(raw_plan)
+            steps    = plan.get("steps") or []
+            if not steps:
+                raise ValueError("empty")
         except Exception:
-            audit = {"passed": True, "score": 7, "feedback": "", "issues": []}
+            steps = [{"agent": "general", "task": task}]
+            plan  = {"plan_summary": "Direct execution", "steps": steps}
 
-        score          = max(0, min(10, int(audit.get("score", 7))))
-        passed         = bool(audit.get("passed", score >= 7))
-        audit_feedback = audit.get("feedback", "")
+        yield {"type": "plan", "summary": plan.get("plan_summary", ""), "steps": steps}
 
-        yield {
-            "type":     "audit_result",
-            "passed":   passed,
-            "score":    score,
-            "feedback": audit_feedback,
-            "issues":   audit.get("issues", []),
-            "round":    round_num,
-        }
+        MAX_ROUNDS     = 3
+        audit_feedback = ""
+        all_outputs: dict[str, str] = {}
 
-        if passed or round_num == MAX_ROUNDS:
-            final_prompt = f"Task: {task}\n\nCompleted work:\n{combined}\n\nAudit: {score}/10"
-            final_text   = await _llm(model, [{"role": "user", "content": final_prompt}], FINAL_SYSTEM, ollama_url)
-            yield {"type": "done", "output": final_text, "score": score}
-            return
+        for round_num in range(1, MAX_ROUNDS + 1):
+            context = f"Original task: {task}\n"
+            if audit_feedback:
+                context += f"\nAuditor feedback (fix these):\n{audit_feedback}\n"
+
+            for step in steps:
+                agent_task = step.get("task", task)
+                if audit_feedback:
+                    agent_task += f"\n\nFix: {audit_feedback}"
+                yield {"type": "agent_start", "agent": step["agent"], "task": agent_task, "round": round_num}
+
+            queue   = asyncio.Queue()
+            outputs: dict[str, str] = {}
+            worker_tasks = [
+                asyncio.create_task(
+                    _run_to_queue(
+                        {**step, "task": (step.get("task", task) + (f"\n\nFix: {audit_feedback}" if audit_feedback else ""))},
+                        context, model, workspace_dir, ollama_url, queue, outputs,
+                        cancel_event=cancel_event,
+                    )
+                )
+                for step in steps
+            ]
+
+            finished = 0
+            try:
+                while finished < len(steps):
+                    event = await queue.get()
+                    if event["type"] == "agent_done":
+                        finished += 1
+                        all_outputs[event["agent"]] = event["output"]
+                    yield event
+            finally:
+                for t in worker_tasks:
+                    if not t.done():
+                        t.cancel()
+
+            yield {"type": "audit_start", "round": round_num}
+            combined     = "\n\n".join(f"=== {a.upper()} ===\n{o}" for a, o in all_outputs.items())
+            audit_prompt = f"Task: {task}\n\nWork done:\n{combined}"
+
+            try:
+                raw_audit = await _llm(model, [{"role": "user", "content": audit_prompt}], AUDITOR_SYSTEM, ollama_url)
+                audit     = _parse_json(raw_audit)
+            except Exception:
+                audit = {"passed": True, "score": 7, "feedback": "", "issues": []}
+
+            score          = max(0, min(10, int(audit.get("score", 7))))
+            passed         = bool(audit.get("passed", score >= 7))
+            audit_feedback = audit.get("feedback", "")
+
+            yield {
+                "type":     "audit_result",
+                "passed":   passed,
+                "score":    score,
+                "feedback": audit_feedback,
+                "issues":   audit.get("issues", []),
+                "round":    round_num,
+            }
+
+            if passed or round_num == MAX_ROUNDS:
+                final_prompt = f"Task: {task}\n\nCompleted work:\n{combined}\n\nAudit: {score}/10"
+                final_text   = await _llm(model, [{"role": "user", "content": final_prompt}], FINAL_SYSTEM, ollama_url)
+                yield {"type": "done", "output": final_text, "score": score}
+                run_history.record_run_end(run_id, "completed")
+                return
+
+        run_history.record_run_end(run_id, "completed")
+    except asyncio.CancelledError:
+        run_history.record_run_end(run_id, "cancelled")
+        raise
+    except Exception as e:
+        run_history.record_run_end(run_id, "failed", error=str(e))
+        raise

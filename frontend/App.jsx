@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import ErrorBoundary from './components/ErrorBoundary'
+import OnboardingWizard from './components/OnboardingWizard'
 import Sidebar        from './components/Sidebar'
 import LoginPage      from './pages/LoginPage'
 import DashboardView  from './pages/DashboardView'
@@ -22,6 +23,7 @@ const CanvasView       = React.lazy(() => import('./pages/CanvasView'))
 const AppBuilderView   = React.lazy(() => import('./pages/AppBuilderView'))
 const OfficeView       = React.lazy(() => import('./pages/OfficeView'))
 const TelegramView     = React.lazy(() => import('./pages/TelegramView'))
+const RunHistoryView   = React.lazy(() => import('./pages/RunHistoryView'))
 import useStore from './store'
 import api from './utils/api'
 import PermissionDialog from './components/PermissionDialog'
@@ -52,12 +54,14 @@ const VIEWS = {
   telegram:    <TelegramView />,
   users:       <UsersView />,
   settings:    <SettingsView />,
+  runs:        <RunHistoryView />,
 }
 
 export default function App() {
   const {
     activeView, setModels, setAgents, setOllamaStatus,
     selectedModel, setSelectedModel, conversations, createConversation,
+    loadConversations, isLoadingConversations,
     isAuthenticated, logout,
     pendingPermissions, setPendingPermissions,
     permissionDialog, setPermissionDialog,
@@ -66,8 +70,9 @@ export default function App() {
   const [installReady, setInstallReady] = useState(false)
   const [updateReady,  setUpdateReady]  = useState(false)   // [P1-6] PWA update
   const [installed,    setInstalled]    = useState(isPWAInstalled())
-  const [showOnboard,  setShowOnboard]  = useState(false)
-  const [reconnecting, setReconnecting] = useState(false)
+const [showOnboard,  setShowOnboard]  = useState(false)
+const [showOnboarding, setShowOnboarding] = useState(!localStorage.getItem('onboarding_done'))
+const [reconnecting, setReconnecting] = useState(false)
 
   // ── Init: load models, agents, health ───────────────────────────────────────
   useEffect(() => {
@@ -103,12 +108,12 @@ export default function App() {
     setupUpdatePrompt(() => setUpdateReady(true))
   }, [])
 
-  // Create a default conversation if needed
+  // Load conversations from API on mount
   useEffect(() => {
-    if (conversations.length === 0 && activeView === 'chat') {
-      createConversation()
+    if (conversations.length === 0 && !isLoadingConversations) {
+      loadConversations()
     }
-  }, [activeView])
+  }, [])
 
   // Reconnect on visibility change
   useEffect(() => {
@@ -166,6 +171,7 @@ export default function App() {
 
   return (
     <ErrorBoundary>
+      {showOnboarding && <OnboardingWizard onComplete={() => setShowOnboarding(false)} />}
       <div className="flex h-screen overflow-hidden bg-surface-0">
         <Sidebar />
 
