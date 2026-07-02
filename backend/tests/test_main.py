@@ -121,6 +121,7 @@ async def test_execute_python_error(client, tmp_workspace):
     assert "ValueError" in data["stderr"]
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(60)
 async def test_execute_timeout(client, tmp_workspace):
     r = await client.post("/api/execute", json={"code": "import time; time.sleep(60)", "language": "python"})
     assert r.status_code == 200
